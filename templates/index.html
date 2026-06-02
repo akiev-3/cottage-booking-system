@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Бронирование коттеджей</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+
+<header>
+  <h1>🏡 Управление коттеджами</h1>
+  <div class="header-right">
+    <a href="/export/csv" class="btn btn-csv">⬇️ CSV</a>
+    <a href="/export/excel" class="btn btn-excel">⬇️ Excel</a>
+    <button class="btn btn-primary" onclick="openAddCottage()">+ Добавить коттедж</button>
+  </div>
+</header>
+
+<main>
+  <div id="cottages-grid" class="cottages-grid">
+    {% for cottage in cottages %}
+    <div class="cottage-card" id="card-{{ cottage.id }}">
+      <div class="card-header">
+        <h2>{{ cottage.name }}</h2>
+        <div class="card-actions">
+          <button class="btn btn-sm btn-outline" onclick="editCottage({{ cottage.id }}, '{{ cottage.name }}', {{ cottage.capacity }}, {{ cottage.price_per_day }}, '{{ cottage.description }}')">✏️</button>
+          <button class="btn btn-sm btn-danger" onclick="deleteCottage({{ cottage.id }})">🗑️</button>
+        </div>
+      </div>
+      <div class="card-body">
+        <div class="info-row">
+          <span class="label">👥 Вместимость</span>
+          <span class="value">{{ cottage.capacity }} чел.</span>
+        </div>
+        <div class="info-row">
+          <span class="label">💰 Цена за сутки</span>
+          <span class="value">${{ "%.0f"|format(cottage.price_per_day) }}</span>
+        </div>
+        {% if cottage.description %}
+        <p class="description">{{ cottage.description }}</p>
+        {% endif %}
+      </div>
+      <div class="card-footer">
+        <a href="/cottages/{{ cottage.id }}/bookings" class="btn btn-primary full-width">📅 Брони</a>
+        <button class="btn btn-success full-width" onclick="openBookingModal({{ cottage.id }}, '{{ cottage.name }}', {{ cottage.capacity }}, {{ cottage.price_per_day }})">+ Новая бронь</button>
+      </div>
+    </div>
+    {% endfor %}
+
+    {% if not cottages %}
+    <div class="empty-state">
+      <p>Коттеджей пока нет.<br>Добавьте первый коттедж!</p>
+    </div>
+    {% endif %}
+  </div>
+</main>
+
+<!-- Modal: Добавить/редактировать коттедж -->
+<div id="modal-add-cottage" class="modal-overlay" onclick="closeModalOverlay(event, 'modal-add-cottage')">
+  <div class="modal">
+    <div class="modal-header">
+      <h3 id="cottage-modal-title">Новый коттедж</h3>
+      <button class="close-btn" onclick="closeModal('modal-add-cottage')">✕</button>
+    </div>
+    <form id="form-cottage" onsubmit="submitCottage(event)">
+      <input type="hidden" id="cottage-id" value="">
+      <div class="form-group">
+        <label>Название коттеджа *</label>
+        <input type="text" id="cottage-name" required placeholder="Например: Коттедж №1">
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Вместимость (чел.) *</label>
+          <input type="number" id="cottage-capacity" required min="1" max="100" placeholder="4">
+        </div>
+        <div class="form-group">
+          <label>Цена за сутки ($) *</label>
+          <input type="number" id="cottage-price" required min="0" step="1" placeholder="50">
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Описание</label>
+        <textarea id="cottage-description" placeholder="Краткое описание коттеджа..." rows="3"></textarea>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline" onclick="closeModal('modal-add-cottage')">Отмена</button>
+        <button type="submit" class="btn btn-primary">Сохранить</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Modal: Новая бронь -->
+<div id="modal-booking" class="modal-overlay" onclick="closeModalOverlay(event, 'modal-booking')">
+  <div class="modal">
+    <div class="modal-header">
+      <h3>Новая бронь — <span id="booking-cottage-name"></span></h3>
+      <button class="close-btn" onclick="closeModal('modal-booking')">✕</button>
+    </div>
+    <form id="form-booking" onsubmit="submitBooking(event)">
+      <input type="hidden" id="booking-cottage-id">
+      <input type="hidden" id="booking-max-guests">
+      <div class="form-group">
+        <label>Имя гостя *</label>
+        <input type="text" id="booking-guest-name" required placeholder="Иванов Иван">
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Дата заезда *</label>
+          <input type="date" id="booking-checkin" required onchange="calcBookingTotal()">
+        </div>
+        <div class="form-group">
+          <label>Дата выезда *</label>
+          <input type="date" id="booking-checkout" required onchange="calcBookingTotal()">
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Количество гостей *</label>
+          <input type="number" id="booking-guests" required min="1" placeholder="2" onchange="calcBookingTotal()">
+          <small id="booking-capacity-hint" class="hint"></small>
+        </div>
+        <div class="form-group">
+          <label>Курс $ сегодня *</label>
+          <input type="number" id="booking-rate" required min="1" step="0.01" onchange="calcBookingTotal()">
+          <small class="hint">сом за 1 $</small>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Заметки</label>
+        <textarea id="booking-notes" placeholder="Пожелания гостя..." rows="2"></textarea>
+      </div>
+      <div id="booking-total-block" class="total-block" style="display:none">
+        <div>
+          <div>Итого: <strong id="booking-total-usd"></strong></div>
+          <div class="total-sub" id="booking-total-tenge"></div>
+        </div>
+        <span class="nights-label" id="booking-nights"></span>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline" onclick="closeModal('modal-booking')">Отмена</button>
+        <button type="submit" class="btn btn-success">Забронировать</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div id="toast" class="toast"></div>
+
+<script>
+  let RATE = {{ rate }};
+</script>
+<script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>

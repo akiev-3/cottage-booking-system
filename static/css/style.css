@@ -279,6 +279,7 @@ main { padding: 32px; max-width: 1300px; margin: 0 auto; }
   width: 100%;
   border-collapse: collapse;
   font-size: 0.9rem;
+  table-layout: fixed;
 }
 
 .bookings-table th {
@@ -290,18 +291,36 @@ main { padding: 32px; max-width: 1300px; margin: 0 auto; }
   letter-spacing: 0.04em;
   color: var(--muted);
   border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+  overflow: hidden;
 }
 
 .bookings-table td {
   padding: 13px 16px;
   border-bottom: 1px solid var(--border);
   vertical-align: middle;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .bookings-table tr:last-child td { border-bottom: none; }
 .bookings-table tr:hover td { background: #f8fafd; }
 .bookings-table tr.past td { color: var(--muted); }
 
-.notes-cell { max-width: 200px; font-size: 0.82rem; color: var(--muted); }
+/* Фиксированные ширины колонок */
+.bookings-table th:nth-child(1)  { width: 48px;  } /* # */
+.bookings-table th:nth-child(2)  { width: 160px; } /* Гость */
+.bookings-table th:nth-child(3)  { width: 100px; } /* Заезд */
+.bookings-table th:nth-child(4)  { width: 100px; } /* Выезд */
+.bookings-table th:nth-child(5)  { width: 64px;  } /* Ночей */
+.bookings-table th:nth-child(6)  { width: 64px;  } /* Гостей */
+.bookings-table th:nth-child(7)  { width: 100px; } /* Сумма $ */
+.bookings-table th:nth-child(8)  { width: 64px;  } /* Скидка */
+.bookings-table th:nth-child(9)  { width: 80px;  } /* Курс */
+.bookings-table th:nth-child(10) { width: 120px; } /* Сумма сом */
+.bookings-table th:last-child    { width: 48px;  } /* Удалить */
+
+.notes-cell { font-size: 0.82rem; color: var(--muted); overflow: hidden; text-overflow: ellipsis; }
 
 /* ── Empty state ── */
 .empty-state {

@@ -38,11 +38,23 @@
 
   /* Таблица заказов */
   .orders-table-wrap { background:var(--card);border-radius:var(--radius);box-shadow:var(--shadow);overflow-x:auto; }
-  .orders-table { width:100%;border-collapse:collapse;font-size:0.88rem; }
-  .orders-table th { background:var(--bg);padding:10px 14px;text-align:left;font-size:0.78rem;text-transform:uppercase;letter-spacing:0.04em;color:var(--muted);border-bottom:1px solid var(--border);white-space:nowrap; }
-  .orders-table td { padding:11px 14px;border-bottom:1px solid var(--border);vertical-align:middle;white-space:nowrap; }
+  .orders-table { width:100%;border-collapse:collapse;font-size:0.88rem;table-layout:fixed; }
+  .orders-table th { background:var(--bg);padding:10px 14px;text-align:left;font-size:0.78rem;text-transform:uppercase;letter-spacing:0.04em;color:var(--muted);border-bottom:1px solid var(--border);white-space:nowrap;overflow:hidden; }
+  .orders-table td { padding:11px 14px;border-bottom:1px solid var(--border);vertical-align:middle;white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
   .orders-table tr:last-child td { border-bottom:none; }
   .orders-table tr:hover td { background:#f8fafd; }
+  .orders-table th:nth-child(1)  { width:46px;  }
+  .orders-table th:nth-child(2)  { width:100px; }
+  .orders-table th:nth-child(3)  { width:110px; }
+  .orders-table th:nth-child(4)  { width: 34%;  }
+  .orders-table th:nth-child(5)  { width:110px; }
+  .orders-table th:nth-child(6)  { width: 14%;  }
+  .orders-table th:nth-child(7)  { width:60px;  }
+  .orders-table th:nth-child(8)  { width:90px;  }
+  .orders-table th:nth-child(9)  { width:100px; }
+  .orders-table th:nth-child(10) { width:110px; }
+  .orders-table th:nth-child(11) { width: 12%;  }
+  .orders-table th:last-child    { width:46px;  }
 
   .category-badge { display:inline-block;padding:2px 8px;border-radius:20px;font-size:0.75rem;font-weight:600; }
   .cat-custom     { background:#f1f5f9;color:#475569; }

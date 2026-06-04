@@ -411,8 +411,17 @@ CATEGORY_LABELS = {
 @login_required
 def services_page():
     conn = get_db(); cur = conn.cursor()
-    cur.execute("SELECT * FROM service_catalog ORDER BY category, id")
+    cur.execute("SELECT * FROM service_catalog ORDER BY owner_type, category, id")
     catalog = [dict(r) for r in cur.fetchall()]
+
+    # Группируем по (owner_type, category) для удобного рендера
+    from collections import defaultdict
+    grouped = defaultdict(lambda: defaultdict(list))
+    for item in catalog:
+        grouped[item["owner_type"]][item["category"]].append(item)
+    catalog_alma    = dict(grouped.get("Алма-Ата",   {}))
+    catalog_private = dict(grouped.get("Собственник", {}))
+
     cur.execute("""
         SELECT so.*, c.name as cname
         FROM service_orders so
@@ -429,6 +438,7 @@ def services_page():
     cur.close(); conn.close()
     return render_template("services.html",
         catalog=catalog, orders=orders,
+        catalog_alma=catalog_alma, catalog_private=catalog_private,
         cottages=cottages, categories=CATEGORY_LABELS,
         catalog_json=json.dumps(catalog))
 

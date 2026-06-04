@@ -113,61 +113,45 @@
   <!-- ── Прайс-лист ── -->
   <div id="tab-catalog" class="tab-content">
     <div class="owner-tabs">
-      <button class="owner-tab active-alma"    id="ptab-alma"    onclick="switchCatalogTab('alma')">🏢 Алма-Ата</button>
-      <button class="owner-tab"                id="ptab-private" onclick="switchCatalogTab('private')">👤 Собственники</button>
+      <button class="owner-tab active-alma" id="ptab-alma"    onclick="switchCatalogTab('alma')">🏢 Алма-Ата</button>
+      <button class="owner-tab"             id="ptab-private" onclick="switchCatalogTab('private')">👤 Собственники</button>
     </div>
 
-    <!-- Алма-Ата -->
+    {# Макрос рендера одной секции каталога #}
+    {% macro render_catalog(grouped, owner_key) %}
+      {% if grouped %}
+        {% for cat, items in grouped.items() %}
+        <div class="catalog-section">
+          <h3>{{ categories.get(cat, cat) }}</h3>
+          <table class="catalog-table">
+            <thead><tr><th>Услуга</th><th>Ед.</th><th>Цена (сом)</th><th></th></tr></thead>
+            <tbody>
+              {% for item in items %}
+              <tr id="crow-{{ item.id }}">
+                <td><input class="inline-input" id="cname-{{ item.id }}" value="{{ item.name }}" onchange="markChanged({{ item.id }})"></td>
+                <td style="width:80px"><input class="inline-input" id="cunit-{{ item.id }}" value="{{ item.unit }}" style="width:70px" onchange="markChanged({{ item.id }})"></td>
+                <td style="width:130px"><input class="inline-input" id="cprice-{{ item.id }}" type="number" value="{{ item.price }}" style="width:110px" onchange="markChanged({{ item.id }})"></td>
+                <td style="width:140px">
+                  <button id="csave-{{ item.id }}" class="btn btn-sm btn-primary save-row-btn" onclick="saveCatalogItem({{ item.id }}, '{{ owner_key }}')">Сохранить</button>
+                  <button class="btn btn-sm btn-danger" onclick="deleteCatalogItem({{ item.id }})">🗑️</button>
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% endfor %}
+      {% else %}
+        <p style="color:var(--muted);margin-bottom:16px">Услуг пока нет.</p>
+      {% endif %}
+      <button class="btn btn-outline" onclick="openAddService('{{ owner_key }}')">+ Добавить услугу</button>
+    {% endmacro %}
+
     <div id="pcatalog-alma">
-      {% set ns = namespace(cur_cat='') %}
-      {% for item in catalog if item.owner_type == 'Алма-Ата' %}
-        {% if item.category != ns.cur_cat %}
-          {% if ns.cur_cat != '' %}</tbody></table></div>{% endif %}
-          {% set ns.cur_cat = item.category %}
-          <div class="catalog-section">
-          <h3>{{ categories.get(item.category, item.category) }}</h3>
-          <table class="catalog-table">
-            <thead><tr><th>Услуга</th><th>Ед.</th><th>Цена (сом)</th><th></th></tr></thead>
-            <tbody>
-        {% endif %}
-            <tr id="crow-{{ item.id }}">
-              <td><input class="inline-input" id="cname-{{ item.id }}" value="{{ item.name }}" onchange="markChanged({{ item.id }})"></td>
-              <td style="width:80px"><input class="inline-input" id="cunit-{{ item.id }}" value="{{ item.unit }}" style="width:70px" onchange="markChanged({{ item.id }})"></td>
-              <td style="width:130px"><input class="inline-input" id="cprice-{{ item.id }}" type="number" value="{{ item.price }}" style="width:110px" onchange="markChanged({{ item.id }})"></td>
-              <td style="width:130px">
-                <button id="csave-{{ item.id }}" class="btn btn-sm btn-primary save-row-btn" onclick="saveCatalogItem({{ item.id }}, 'Алма-Ата')">Сохранить</button>
-                <button class="btn btn-sm btn-danger" onclick="deleteCatalogItem({{ item.id }})">🗑️</button>
-              </td>
-            </tr>
-      {% endfor %}
-      {% if catalog %}</tbody></table></div>{% endif %}
-      <button class="btn btn-outline" style="margin-top:8px" onclick="openAddService('Алма-Ата')">+ Добавить услугу</button>
+      {{ render_catalog(catalog_alma, 'Алма-Ата') }}
     </div>
-
-    <!-- Собственники -->
     <div id="pcatalog-private" style="display:none">
-      {% set ns2 = namespace(cur_cat2='') %}
-      {% for item in catalog if item.owner_type == 'Собственник' %}
-        {% if item.category != ns2.cur_cat2 %}
-          {% if ns2.cur_cat2 != '' %}</tbody></table></div>{% endif %}
-          {% set ns2.cur_cat2 = item.category %}
-          <div class="catalog-section">
-          <h3>{{ categories.get(item.category, item.category) }}</h3>
-          <table class="catalog-table">
-            <thead><tr><th>Услуга</th><th>Ед.</th><th>Цена (сом)</th><th></th></tr></thead>
-            <tbody>
-        {% endif %}
-            <tr id="crow-{{ item.id }}">
-              <td><input class="inline-input" id="cname-{{ item.id }}" value="{{ item.name }}" onchange="markChanged({{ item.id }})"></td>
-              <td style="width:80px"><input class="inline-input" id="cunit-{{ item.id }}" value="{{ item.unit }}" style="width:70px" onchange="markChanged({{ item.id }})"></td>
-              <td style="width:130px"><input class="inline-input" id="cprice-{{ item.id }}" type="number" value="{{ item.price }}" style="width:110px" onchange="markChanged({{ item.id }})"></td>
-              <td style="width:130px">
-                <button id="csave-{{ item.id }}" class="btn btn-sm btn-primary save-row-btn" onclick="saveCatalogItem({{ item.id }}, 'Собственник')">Сохранить</button>
-                <button class="btn btn-sm btn-danger" onclick="deleteCatalogItem({{ item.id }})">🗑️</button>
-              </td>
-            </tr>
-      {% endfor %}
-      <button class="btn btn-outline" style="margin-top:8px" onclick="openAddService('Собственник')">+ Добавить услугу</button>
+      {{ render_catalog(catalog_private, 'Собственник') }}
     </div>
   </div>
 </main>

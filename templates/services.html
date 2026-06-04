@@ -73,7 +73,8 @@
         <thead>
           <tr>
             <th>#</th>
-            <th>Дата</th>
+            <th>Дата начала</th>
+            <th>Дата окончания</th>
             <th>Услуга</th>
             <th>Категория</th>
             <th>Коттедж</th>
@@ -90,6 +91,7 @@
           <tr id="orow-{{ o.id }}">
             <td>{{ o.id }}</td>
             <td>{{ o.service_date|fmtdate }}</td>
+            <td>{% if o.end_date %}{{ o.end_date|fmtdate }}{% else %}—{% endif %}</td>
             <td><strong>{{ o.service_name }}</strong></td>
             <td>
               <span class="category-badge cat-{{ o.category }}">
@@ -189,10 +191,18 @@
           <input type="number" id="order-price" min="0" step="1" onchange="calcOrderTotal()">
         </div>
       </div>
-      <!-- Поле гос. номера — показывается только для парковки -->
-      <div class="form-group" id="plate-group" style="display:none">
-        <label>🚗 Гос. номер *</label>
-        <input type="text" id="order-plate" placeholder="01 KG 123 AB" style="text-transform:uppercase;font-family:monospace;font-size:1rem;letter-spacing:0.08em">
+      <!-- Поля парковки — показываются только для парковки -->
+      <div id="parking-group" style="display:none">
+        <div class="form-row">
+          <div class="form-group">
+            <label>🚗 Гос. номер *</label>
+            <input type="text" id="order-plate" placeholder="01 KG 123 AB" style="text-transform:uppercase;font-family:monospace;font-size:1rem;letter-spacing:0.08em">
+          </div>
+          <div class="form-group">
+            <label>Дата окончания *</label>
+            <input type="date" id="order-end-date" onchange="calcOrderTotal()">
+          </div>
+        </div>
       </div>
       <div class="form-group">
         <label>Заметки</label>
@@ -273,28 +283,45 @@ function showToast(msg, type='') {
 }
 
 // ── Заказ ──────────────────────────────────────────────
+let isParking = false;
+
 function onServiceChange() {
   const sel = document.getElementById('order-service');
   const opt = sel.options[sel.selectedIndex];
   if (!opt.value) return;
   document.getElementById('order-price').value = opt.dataset.price;
   document.getElementById('order-unit-hint').textContent = 'ед. — ' + opt.dataset.unit;
-  // Парковка — показываем поле гос. номера
-  const isParking = opt.dataset.plate === 'true';
-  const pg = document.getElementById('plate-group');
-  pg.style.display = isParking ? 'block' : 'none';
-  document.getElementById('order-plate').required = isParking;
+  isParking = opt.dataset.plate === 'true';
+  document.getElementById('parking-group').style.display = isParking ? 'block' : 'none';
+  document.getElementById('order-plate').required    = isParking;
+  document.getElementById('order-end-date').required = isParking;
+  // Для парковки скрываем ручной ввод кол-ва
+  document.getElementById('order-qty').closest('.form-group').style.display = isParking ? 'none' : 'block';
   calcOrderTotal();
 }
 
 function calcOrderTotal() {
-  const qty   = parseFloat(document.getElementById('order-qty').value)   || 0;
   const price = parseFloat(document.getElementById('order-price').value) || 0;
   const block = document.getElementById('order-total-block');
+  let qty = 0;
+
+  if (isParking) {
+    const start = document.getElementById('order-date').value;
+    const end   = document.getElementById('order-end-date').value;
+    if (start && end) {
+      const days = Math.round((new Date(end) - new Date(start)) / 86400000);
+      qty = days > 0 ? days : 0;
+      document.getElementById('order-qty').value = qty;
+    }
+  } else {
+    qty = parseFloat(document.getElementById('order-qty').value) || 0;
+  }
+
   if (!qty || !price) { block.style.display='none'; return; }
   const total = Math.round(qty * price);
-  document.getElementById('order-total').textContent    = total.toLocaleString('ru-RU') + ' сом';
-  document.getElementById('order-qty-label').textContent = qty + ' × ' + price.toLocaleString('ru-RU') + ' сом';
+  const unit  = isParking ? 'дней' : 'ед.';
+  document.getElementById('order-total').textContent     = total.toLocaleString('ru-RU') + ' сом';
+  document.getElementById('order-qty-label').textContent = qty + ' ' + unit + ' × ' + price.toLocaleString('ru-RU') + ' сом';
   block.style.display = 'flex';
 }
 
@@ -304,6 +331,7 @@ async function submitOrder(e) {
   const body = {
     service_id:   sel.value,
     service_date: document.getElementById('order-date').value,
+    end_date:     document.getElementById('order-end-date').value || null,
     cottage_id:   document.getElementById('order-cottage').value || null,
     quantity:     document.getElementById('order-qty').value,
     price:        document.getElementById('order-price').value,

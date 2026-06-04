@@ -130,6 +130,7 @@ def init_db():
             cottage_id   INT REFERENCES cottages(id) ON DELETE SET NULL,
             cottage_name VARCHAR(255) DEFAULT '',
             service_date DATE        NOT NULL,
+            end_date     DATE        DEFAULT NULL,
             quantity     FLOAT       DEFAULT 1,
             price        FLOAT       NOT NULL,
             total        FLOAT       NOT NULL,
@@ -137,6 +138,11 @@ def init_db():
             notes        TEXT        DEFAULT '',
             created_at   TIMESTAMP   DEFAULT NOW()
         )
+    """)
+    # Миграция: добавить end_date если таблица уже существовала без неё
+    cur.execute("""
+        ALTER TABLE service_orders
+        ADD COLUMN IF NOT EXISTS end_date DATE DEFAULT NULL
     """)
 
     conn.commit()
@@ -404,8 +410,9 @@ def services_page():
     """)
     orders = [dict(r) for r in cur.fetchall()]
     for o in orders:
-        if isinstance(o.get("service_date"), date):
-            o["service_date"] = o["service_date"].isoformat()
+        for f in ("service_date", "end_date"):
+            if isinstance(o.get(f), date):
+                o[f] = o[f].isoformat()
     cur.execute("SELECT * FROM cottages ORDER BY name")
     cottages = [dict(r) for r in cur.fetchall()]
     cur.close(); conn.close()
@@ -472,23 +479,34 @@ def create_service_order():
         c = cur.fetchone()
         cottage_name = c["name"] if c else ""
 
-    qty   = float(body.get("quantity") or 1)
-    price = float(body.get("price") or svc["price"])
+    price    = float(body.get("price") or svc["price"])
+    end_date = body.get("end_date") or None
+
+    # Для парковки считаем дни между датами автоматически
+    if end_date and svc["has_plate"]:
+        from datetime import date as _date
+        d1 = datetime.strptime(body["service_date"], "%Y-%m-%d").date()
+        d2 = datetime.strptime(end_date, "%Y-%m-%d").date()
+        qty = max(1, (d2 - d1).days)
+    else:
+        qty = float(body.get("quantity") or 1)
+
     total = round(qty * price)
 
     cur.execute("""
         INSERT INTO service_orders
             (service_id, service_name, category, cottage_id, cottage_name,
-             service_date, quantity, price, total, plate, notes)
-        VALUES (%s,%s,%s,%s,%s, %s,%s,%s,%s,%s,%s) RETURNING *
+             service_date, end_date, quantity, price, total, plate, notes)
+        VALUES (%s,%s,%s,%s,%s, %s,%s,%s,%s,%s,%s,%s) RETURNING *
     """, (svc["id"], svc["name"], svc["category"],
           cottage_id, cottage_name,
-          body["service_date"], qty, price, total,
+          body["service_date"], end_date, qty, price, total,
           body.get("plate",""), body.get("notes","")))
     order = dict(cur.fetchone())
     conn.commit(); cur.close(); conn.close()
-    if isinstance(order.get("service_date"), date):
-        order["service_date"] = order["service_date"].isoformat()
+    for f in ("service_date", "end_date"):
+        if isinstance(order.get(f), date):
+            order[f] = order[f].isoformat()
     return jsonify(order), 201
 
 

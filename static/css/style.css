@@ -235,22 +235,36 @@ main { padding: 32px; max-width: 1300px; margin: 0 auto; }
 
 .card-body { padding: 16px 20px; flex: 1; }
 
-/* Универсальный стек-ряд для всех карточек */
+/* Горизонтальный ряд — для коротких значений (тип, цена, вместимость) */
 .info-row {
+  display: flex;
+  flex-direction: row;
+  justify-content: space-between;
+  align-items: center;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--border);
+  gap: 8px;
+}
+.info-row:last-child { border-bottom: none; }
+.label  { color: var(--muted); font-size: 0.78rem; font-weight: 500; white-space: nowrap; flex-shrink: 0; }
+.value  { font-weight: 600; font-size: 0.9rem; text-align: right; }
+
+/* Вертикальный стек — для длинных значений (имя, контакты) */
+.info-row-stack {
   display: flex;
   flex-direction: column;
   padding: 7px 0;
   border-bottom: 1px solid var(--border);
-  gap: 2px;
+  gap: 3px;
 }
-.info-row:last-child { border-bottom: none; }
-.label  { color: var(--muted); font-size: 0.78rem; font-weight: 500; }
-.value  { font-weight: 600; font-size: 0.9rem; word-break: break-word; white-space: normal; line-height: 1.4; }
-
-/* Алиас — оставляем совместимость */
-.info-row-stack { display: flex; flex-direction: column; padding: 7px 0; border-bottom: 1px solid var(--border); gap: 2px; }
 .info-row-stack:last-child { border-bottom: none; }
-.value-full { font-weight: 600; font-size: 0.88rem; word-break: break-word; white-space: normal; line-height: 1.4; }
+.value-full {
+  font-weight: 600;
+  font-size: 0.88rem;
+  word-break: break-word;
+  white-space: normal;
+  line-height: 1.4;
+}
 
 .description {
   margin-top: 12px;

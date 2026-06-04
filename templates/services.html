@@ -45,10 +45,7 @@
   .orders-table tr:hover td { background:#f8fafd; }
 
   .category-badge { display:inline-block;padding:2px 8px;border-radius:20px;font-size:0.75rem;font-weight:600; }
-  .cat-cleaning   { background:#dbeafe;color:#1d4ed8; }
-  .cat-parking    { background:#fef3c7;color:#b45309; }
-  .cat-laundry    { background:#f3e8ff;color:#7c3aed; }
-  .cat-specialist { background:#dcfce7;color:#166534; }
+  .cat-custom     { background:#f1f5f9;color:#475569; }
   .plate-badge { background:#1e293b;color:#f1f5f9;font-size:0.78rem;font-weight:700;padding:2px 8px;border-radius:4px;letter-spacing:0.06em;font-family:monospace; }
 </style>
 </head>
@@ -92,7 +89,7 @@
             <td>{{ o.service_date|fmtdate }}</td>
             <td>{% if o.end_date %}{{ o.end_date|fmtdate }}{% else %}—{% endif %}</td>
             <td><strong>{{ o.service_name }}</strong></td>
-            <td><span class="category-badge cat-{{ o.category }}">{{ categories.get(o.category, o.category) }}</span></td>
+            <td><span class="category-badge cat-custom">{{ o.category }}</span></td>
             <td>{{ o.cottage_name or '—' }}</td>
             <td>{{ o.quantity }}</td>
             <td>{{ "%.0f"|format(o.price) }} сом</td>
@@ -122,7 +119,7 @@
       {% if grouped %}
         {% for cat, items in grouped.items() %}
         <div class="catalog-section">
-          <h3>{{ categories.get(cat, cat) }}</h3>
+          <h3>{{ cat }}</h3>
           <table class="catalog-table">
             <thead><tr><th>Услуга</th><th>Ед.</th><th>Цена (сом)</th><th></th></tr></thead>
             <tbody>
@@ -260,12 +257,7 @@
       <input type="hidden" id="new-svc-owner">
       <div class="form-group">
         <label>Категория *</label>
-        <select id="new-svc-cat" required class="sel">
-          <option value="cleaning">🧹 Уборка</option>
-          <option value="parking">🚗 Парковка</option>
-          <option value="laundry">👕 Стирка</option>
-          <option value="specialist">🔧 Специалист</option>
-        </select>
+        <input type="text" id="new-svc-cat" required placeholder="Например: Уборка, Стирка, Парковка...">
       </div>
       <div class="form-group">
         <label>Название *</label>

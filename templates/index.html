@@ -5,6 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Бронирование коттеджей</title>
 <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+<link rel="manifest" href="/static/manifest.json">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Коттеджи">
+<meta name="theme-color" content="#4f6ef7">
 </head>
 <body>
 
@@ -14,6 +19,7 @@
     <a href="/export/csv" class="btn btn-csv">⬇️ CSV</a>
     <a href="/export/excel" class="btn btn-excel">⬇️ Excel</a>
     <button class="btn btn-primary" onclick="openAddCottage()">+ Добавить коттедж</button>
+    <a href="/logout" class="btn btn-outline">Выйти</a>
   </div>
 </header>
 
@@ -127,14 +133,22 @@
           <small class="hint">сом за 1 $</small>
         </div>
       </div>
-      <div class="form-group">
-        <label>Заметки</label>
-        <textarea id="booking-notes" placeholder="Пожелания гостя..." rows="2"></textarea>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Скидка ($)</label>
+          <input type="number" id="booking-discount" min="0" step="1" placeholder="0" onchange="calcBookingTotal()">
+          <small class="hint">вычитается из суммы</small>
+        </div>
+        <div class="form-group">
+          <label>Заметки</label>
+          <textarea id="booking-notes" placeholder="Пожелания гостя..." rows="2"></textarea>
+        </div>
       </div>
       <div id="booking-total-block" class="total-block" style="display:none">
         <div>
           <div>Итого: <strong id="booking-total-usd"></strong></div>
           <div class="total-sub" id="booking-total-tenge"></div>
+          <div class="total-discount" id="booking-discount-line" style="display:none"></div>
         </div>
         <span class="nights-label" id="booking-nights"></span>
       </div>

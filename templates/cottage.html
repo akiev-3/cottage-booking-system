@@ -5,6 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>{{ cottage.name }} — Брони</title>
 <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+<link rel="manifest" href="/static/manifest.json">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Коттеджи">
+<meta name="theme-color" content="#4f6ef7">
 </head>
 <body>
 
@@ -17,6 +22,7 @@
     <a href="/export/csv/{{ cottage.id }}" class="btn btn-csv">⬇️ CSV</a>
     <a href="/export/excel/{{ cottage.id }}" class="btn btn-excel">⬇️ Excel</a>
     <button class="btn btn-success" onclick="openModal('modal-booking')">+ Новая бронь</button>
+    <a href="/logout" class="btn btn-outline">Выйти</a>
   </div>
 </header>
 
@@ -40,6 +46,7 @@
             <th>Ночей</th>
             <th>Гостей</th>
             <th>Сумма ($)</th>
+            <th>Скидка</th>
             <th>Курс</th>
             <th>Сумма (сом)</th>
             <th>Заметки</th>
@@ -55,7 +62,11 @@
             <td>{{ b.check_out|fmtdate }}</td>
             <td>{{ b.nights }}</td>
             <td>{{ b.guests }}</td>
-            <td>${{ "%.0f"|format(b.total) }}</td>
+            <td>
+              ${{ "%.0f"|format(b.total) }}
+              {% if b.discount %}<span class="was-price">${{ "%.0f"|format(b.total_before_discount) }}</span>{% endif %}
+            </td>
+            <td>{% if b.discount %}<span class="discount-badge">-${{ b.discount }}</span>{% else %}—{% endif %}</td>
             <td>{{ b.rate }}</td>
             <td>{{ "%.0f"|format(b.total_som) }} сом</td>
             <td class="notes-cell">{{ b.notes }}</td>
@@ -107,14 +118,22 @@
           <small class="hint">сом за 1 $</small>
         </div>
       </div>
-      <div class="form-group">
-        <label>Заметки</label>
-        <textarea id="booking-notes" placeholder="Пожелания гостя..." rows="2"></textarea>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Скидка ($)</label>
+          <input type="number" id="booking-discount" min="0" step="1" placeholder="0" onchange="calcTotal()">
+          <small class="hint">вычитается из суммы</small>
+        </div>
+        <div class="form-group">
+          <label>Заметки</label>
+          <textarea id="booking-notes" placeholder="Пожелания гостя..." rows="2"></textarea>
+        </div>
       </div>
       <div id="total-block" class="total-block" style="display:none">
         <div>
           <div>Итого: <strong id="total-usd"></strong></div>
           <div class="total-sub" id="total-tenge"></div>
+          <div class="total-discount" id="total-discount-line" style="display:none"></div>
         </div>
         <span class="nights-label" id="total-nights"></span>
       </div>

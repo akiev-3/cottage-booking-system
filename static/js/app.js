@@ -71,18 +71,27 @@ function openBookingModal(cottageId, name, capacity, price) {
 }
 
 function calcBookingTotal() {
-  const ci   = document.getElementById('booking-checkin').value;
-  const co   = document.getElementById('booking-checkout').value;
-  const rate = parseFloat(document.getElementById('booking-rate').value);
+  const ci       = document.getElementById('booking-checkin').value;
+  const co       = document.getElementById('booking-checkout').value;
+  const rate     = parseFloat(document.getElementById('booking-rate').value);
+  const discount = parseFloat(document.getElementById('booking-discount').value) || 0;
   if (!ci || !co || !rate) return;
-  const nights = Math.round((new Date(co) - new Date(ci)) / 86400000);
-  const block  = document.getElementById('booking-total-block');
-  if (nights <= 0) { block.style.display = 'none'; return; }
-  const totalUsd = nights * bookingPrice;
-  const totalSom = Math.round(totalUsd * rate);
+  const nights      = Math.round((new Date(co) - new Date(ci)) / 86400000);
+  const block       = document.getElementById('booking-total-block');
+  if (nights <= 0)  { block.style.display = 'none'; return; }
+  const totalBefore = nights * bookingPrice;
+  const totalUsd    = Math.max(0, totalBefore - discount);
+  const totalSom    = Math.round(totalUsd * rate);
   document.getElementById('booking-total-usd').textContent   = `$${totalUsd.toLocaleString('ru-RU')}`;
   document.getElementById('booking-total-tenge').textContent = `≈ ${totalSom.toLocaleString('ru-RU')} сом`;
   document.getElementById('booking-nights').textContent      = `${nights} ночей`;
+  const discLine = document.getElementById('booking-discount-line');
+  if (discount > 0) {
+    discLine.textContent = `Скидка -$${discount} · было $${totalBefore.toLocaleString('ru-RU')}`;
+    discLine.style.display = 'block';
+  } else {
+    discLine.style.display = 'none';
+  }
   block.style.display = 'flex';
 }
 
@@ -97,6 +106,7 @@ async function submitBooking(e) {
     check_out:  document.getElementById('booking-checkout').value,
     guests:     document.getElementById('booking-guests').value,
     rate,
+    discount:   parseFloat(document.getElementById('booking-discount').value) || 0,
     notes:      document.getElementById('booking-notes').value.trim(),
   };
   const res  = await fetch('/bookings', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });

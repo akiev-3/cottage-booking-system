@@ -1,4 +1,6 @@
-from flask import Flask, render_template, request, jsonify, redirect, url_for, send_file
+from flask import Flask, render_template, request, jsonify, redirect, url_for, send_file, session, flash
+from functools import wraps
+from werkzeug.security import generate_password_hash, check_password_hash
 import json
 import os
 import io
@@ -8,6 +10,21 @@ from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 
 app = Flask(__name__)
+app.secret_key = os.environ.get("SECRET_KEY", "cottage-secret-2024-change-me")
+
+# ── Учётные данные ────────────────────────────────────────
+# Чтобы сменить пароль: поменяй LOGIN и PASSWORD ниже и перезапусти
+LOGIN    = "admin"
+PASSWORD = generate_password_hash("Eldar7979d")   # ← измени "1234" на свой пароль
+
+
+def login_required(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if not session.get("logged_in"):
+            return redirect(url_for("login_page"))
+        return f(*args, **kwargs)
+    return decorated
 
 # Абсолютный путь — данные всегда найдутся независимо от того,
 # из какой папки запускается приложение
@@ -23,12 +40,16 @@ def load_data():
         return {"cottages": [], "bookings": [], "settings": {"rate": 500}}
     data = json.load(open(DATA_FILE, encoding="utf-8"))
     data.setdefault("settings", {"rate": 500})
-    # Совместимость со старыми бронями без поля rate/total_som
+    # Совместимость со старыми бронями
     for b in data.get("bookings", []):
         if "rate" not in b:
             b["rate"] = data["settings"]["rate"]
         if "total_som" not in b:
             b["total_som"] = round(b["total"] * b["rate"])
+        if "discount" not in b:
+            b["discount"] = 0  # сумма скидки в $
+        if "total_before_discount" not in b:
+            b["total_before_discount"] = b["total"]
     return data
 
 
@@ -52,7 +73,32 @@ def next_id(items):
 app.jinja_env.filters["fmtdate"] = fmt_date
 
 
+# ── Auth ──────────────────────────────────────────────────
+
+@app.route("/login", methods=["GET", "POST"])
+def login_page():
+    if session.get("logged_in"):
+        return redirect(url_for("index"))
+    error = None
+    if request.method == "POST":
+        if (request.form.get("username") == LOGIN and
+                check_password_hash(PASSWORD, request.form.get("password", ""))):
+            session["logged_in"] = True
+            return redirect(url_for("index"))
+        error = "Неверный логин или пароль"
+    return render_template("login.html", error=error)
+
+
+@app.route("/logout")
+def logout():
+    session.clear()
+    return redirect(url_for("login_page"))
+
+
+# ── Main ──────────────────────────────────────────────────
+
 @app.route("/")
+@login_required
 def index():
     data = load_data()
     return render_template("index.html", cottages=data["cottages"], rate=data["settings"]["rate"])
@@ -61,12 +107,14 @@ def index():
 # ── Settings ──────────────────────────────────────────────
 
 @app.route("/settings", methods=["GET"])
+@login_required
 def get_settings():
     data = load_data()
     return jsonify(data["settings"])
 
 
 @app.route("/settings", methods=["POST"])
+@login_required
 def update_settings():
     data = load_data()
     body = request.json
@@ -79,6 +127,7 @@ def update_settings():
 # ── Cottages ──────────────────────────────────────────────
 
 @app.route("/cottages", methods=["POST"])
+@login_required
 def create_cottage():
     data = load_data()
     body = request.json
@@ -95,6 +144,7 @@ def create_cottage():
 
 
 @app.route("/cottages/<int:cottage_id>", methods=["PUT"])
+@login_required
 def update_cottage(cottage_id):
     data = load_data()
     body = request.json
@@ -110,6 +160,7 @@ def update_cottage(cottage_id):
 
 
 @app.route("/cottages/<int:cottage_id>", methods=["DELETE"])
+@login_required
 def delete_cottage(cottage_id):
     data = load_data()
     data["cottages"] = [c for c in data["cottages"] if c["id"] != cottage_id]
@@ -121,6 +172,7 @@ def delete_cottage(cottage_id):
 # ── Bookings ──────────────────────────────────────────────
 
 @app.route("/bookings", methods=["GET"])
+@login_required
 def get_bookings():
     data = load_data()
     cottage_id = request.args.get("cottage_id", type=int)
@@ -131,6 +183,7 @@ def get_bookings():
 
 
 @app.route("/bookings", methods=["POST"])
+@login_required
 def create_booking():
     data   = load_data()
     body   = request.json
@@ -159,25 +212,29 @@ def create_booking():
         if ci < bo and co > bi:
             return jsonify({"error": f"Даты пересекаются с бронью #{b['id']} ({b['check_in']} – {b['check_out']})"}), 409
 
-    nights = (co - ci).days
-    total  = nights * cottage["price_per_day"]
+    nights       = (co - ci).days
+    total_before = nights * cottage["price_per_day"]
+    discount     = max(0, float(body.get("discount") or 0))   # фиксированная сумма в $
+    total        = round(max(0, total_before - discount), 2)
 
     # Берём курс из формы; если не передан — из настроек
     rate = float(body.get("rate") or data["settings"]["rate"])
 
     booking = {
-        "id":           next_id(data["bookings"]),
-        "cottage_id":   cottage_id,
-        "cottage_name": cottage["name"],
-        "guest_name":   body.get("guest_name", ""),
-        "guests":       guests,
-        "check_in":     check_in,
-        "check_out":    check_out,
-        "nights":       nights,
-        "total":        total,          # в долларах
-        "rate":         rate,           # курс на момент бронирования
-        "total_som":    total * rate,   # сумма в сомах
-        "notes":        body.get("notes", ""),
+        "id":                   next_id(data["bookings"]),
+        "cottage_id":           cottage_id,
+        "cottage_name":         cottage["name"],
+        "guest_name":           body.get("guest_name", ""),
+        "guests":               guests,
+        "check_in":             check_in,
+        "check_out":            check_out,
+        "nights":               nights,
+        "discount":             discount,
+        "total_before_discount": total_before,
+        "total":                total,        # в долларах после скидки
+        "rate":                 rate,
+        "total_som":            round(total * rate),
+        "notes":                body.get("notes", ""),
     }
     data["bookings"].append(booking)
     save_data(data)
@@ -185,6 +242,7 @@ def create_booking():
 
 
 @app.route("/bookings/<int:booking_id>", methods=["DELETE"])
+@login_required
 def delete_booking(booking_id):
     data = load_data()
     data["bookings"] = [b for b in data["bookings"] if b["id"] != booking_id]
@@ -193,6 +251,7 @@ def delete_booking(booking_id):
 
 
 @app.route("/cottages/<int:cottage_id>/bookings")
+@login_required
 def cottage_bookings_page(cottage_id):
     data    = load_data()
     cottage = next((c for c in data["cottages"] if c["id"] == cottage_id), None)
@@ -219,11 +278,11 @@ def _thin_border():
 # Колонки и ширины — единое место, используется везде
 BOOK_HEADERS = [
     "№", "Коттедж", "Гость", "Заезд", "Выезд",
-    "Ночей", "Гостей", "Сумма ($)", "Сумма (сом)", "Курс", "Заметки"
+    "Ночей", "Гостей", "Скидка ($)","Сумма ($)", "Сумма (сом)", "Курс", "Заметки"
 ]
-BOOK_WIDTHS = [6, 22, 22, 13, 13, 8, 8, 13, 14, 8, 30]
+BOOK_WIDTHS = [6, 22, 22, 13, 13, 8, 8, 10, 13, 14, 8, 30]
 # Индексы (1-based) для выравнивания по центру
-CENTER_COLS = {1, 6, 7, 8, 9, 10}
+CENTER_COLS = {1, 6, 7, 8, 9, 10, 11}
 
 
 def _booking_row(b, current_rate):
@@ -231,6 +290,7 @@ def _booking_row(b, current_rate):
     b_rate    = b.get("rate", current_rate)          # курс на момент бронирования
     total_usd = b["total"]                            # всегда в $
     total_som = b.get("total_som", total_usd * b_rate)
+    discount = b.get("discount", 0)
     return [
         b["id"],
         b["cottage_name"],
@@ -239,6 +299,7 @@ def _booking_row(b, current_rate):
         fmt_date(b["check_out"]),
         b["nights"],
         b["guests"],
+        f"-${discount}" if discount else "—",
         total_usd,
         round(total_som),
         b_rate,
@@ -299,6 +360,7 @@ def _write_totals(ws, bookings, current_rate, total_row):
 
 
 @app.route("/export/excel")
+@login_required
 def export_excel():
     """Все брони всех коттеджей."""
     data         = load_data()
@@ -370,6 +432,7 @@ def export_excel():
 
 
 @app.route("/export/excel/<int:cottage_id>")
+@login_required
 def export_excel_cottage(cottage_id):
     """Брони одного коттеджа."""
     data         = load_data()
@@ -412,7 +475,7 @@ def export_excel_cottage(cottage_id):
 # ── CSV export ────────────────────────────────────────────
 
 CSV_HEADERS = ["№", "Коттедж", "Гость", "Заезд", "Выезд",
-               "Ночей", "Гостей", "Сумма ($)", "Курс", "Сумма (сом)", "Заметки"]
+               "Ночей", "Гостей", "Скидка ($)","Сумма ($)", "Курс", "Сумма (сом)", "Заметки"]
 
 def _bookings_to_csv(bookings, current_rate) -> io.StringIO:
     buf = io.StringIO()
@@ -422,6 +485,7 @@ def _bookings_to_csv(bookings, current_rate) -> io.StringIO:
     for b in bookings:
         b_rate    = b.get("rate", current_rate)
         total_som = b.get("total_som", round(b["total"] * b_rate))
+        discount = b.get("discount", 0)
         writer.writerow([
             b["id"],
             b["cottage_name"],
@@ -430,6 +494,7 @@ def _bookings_to_csv(bookings, current_rate) -> io.StringIO:
             fmt_date(b["check_out"]),
             b["nights"],
             b["guests"],
+            f"-${discount}" if discount else "—",
             b["total"],
             b_rate,
             round(total_som),
@@ -451,6 +516,7 @@ def _bookings_to_csv(bookings, current_rate) -> io.StringIO:
 
 
 @app.route("/export/csv")
+@login_required
 def export_csv():
     """Все брони — CSV."""
     data         = load_data()
@@ -466,6 +532,7 @@ def export_csv():
 
 
 @app.route("/export/csv/<int:cottage_id>")
+@login_required
 def export_csv_cottage(cottage_id):
     """Брони одного коттеджа — CSV."""
     data         = load_data()
@@ -487,4 +554,5 @@ def export_csv_cottage(cottage_id):
 
 
 if __name__ == "__main__":
-    app.run(debug=True, port=5000)
+    port = int(os.environ.get("PORT", 8080))
+    app.run(host="0.0.0.0", port=port, debug=True)

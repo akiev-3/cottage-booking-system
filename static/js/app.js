@@ -8,7 +8,12 @@ function filterCottages(type, btn) {
   document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
   document.querySelectorAll('.cottage-card').forEach(card => {
-    card.style.display = (type === 'all' || card.dataset.owner === type) ? '' : 'none';
+    let show = false;
+    if (type === 'all')            show = true;
+    else if (type === 'private')   show = card.dataset.owner === 'private';
+    else if (type === 'cottage-company') show = card.dataset.owner === 'company' && card.dataset.ptype === 'cottage';
+    else if (type === 'hotel-company')   show = card.dataset.owner === 'company' && card.dataset.ptype === 'hotel';
+    card.style.display = show ? '' : 'none';
   });
 }
 
@@ -35,23 +40,24 @@ function showToast(msg, type = '') {
 
 // ── Cottage form ──
 function onOwnerToggle() {
-  const type = document.querySelector('input[name="owner_type"]:checked')?.value;
-  const isPrivate = type === 'Собственник';
-  document.getElementById('owner-name-group').style.display    = isPrivate ? 'block' : 'none';
-  document.getElementById('price-capacity-group').style.display = isPrivate ? 'none'  : 'block';
-  document.getElementById('contacts-group').style.display       = isPrivate ? 'block' : 'none';
+  const ownerType = document.querySelector('input[name="owner_type"]:checked')?.value;
+  const isPrivate = ownerType === 'Собственник';
+  document.getElementById('owner-name-group').style.display     = isPrivate ? 'block' : 'none';
+  document.getElementById('price-capacity-group').style.display  = isPrivate ? 'none'  : 'block';
+  document.getElementById('contacts-group').style.display        = isPrivate ? 'block' : 'none';
 }
 
 function openAddCottage() {
   document.getElementById('cottage-modal-title').textContent = 'Новый объект';
   document.getElementById('cottage-id').value = '';
   document.getElementById('form-cottage').reset();
-  document.getElementById('owner-cottages').checked = true;
+  document.getElementById('ptype-cottage').checked  = true;
+  document.getElementById('owner-company').checked  = true;
   onOwnerToggle();
   openModal('modal-add-cottage');
 }
 
-function editCottage(id, name, capacity, price, desc, ownerType, ownerName, contacts) {
+function editCottage(id, name, capacity, price, desc, ownerType, ownerName, contacts, propertyType) {
   document.getElementById('cottage-modal-title').textContent = 'Редактировать';
   document.getElementById('cottage-id').value              = id;
   document.getElementById('cottage-name').value            = name;
@@ -60,9 +66,10 @@ function editCottage(id, name, capacity, price, desc, ownerType, ownerName, cont
   document.getElementById('cottage-description').value     = desc;
   document.getElementById('cottage-contacts').value        = contacts || '';
   document.getElementById('cottage-owner-name').value      = ownerName || '';
-  document.getElementById('owner-cottages').checked        = ownerType === 'Коттеджи';
+  document.getElementById('ptype-cottage').checked         = (propertyType || 'Коттедж') !== 'Номер отеля';
+  document.getElementById('ptype-hotel').checked           = propertyType === 'Номер отеля';
+  document.getElementById('owner-company').checked         = ownerType !== 'Собственник';
   document.getElementById('owner-private').checked         = ownerType === 'Собственник';
-  document.getElementById('owner-hotel').checked           = ownerType === 'Номера отеля';
   onOwnerToggle();
   openModal('modal-add-cottage');
 }
@@ -70,8 +77,9 @@ function editCottage(id, name, capacity, price, desc, ownerType, ownerName, cont
 async function submitCottage(e) {
   e.preventDefault();
   const id = document.getElementById('cottage-id').value;
-  const ownerType = document.querySelector('input[name="owner_type"]:checked')?.value || 'Коттеджи';
-  const isPrivate = ownerType === 'Собственник';
+  const ownerType    = document.querySelector('input[name="owner_type"]:checked')?.value    || 'Компания';
+  const propertyType = document.querySelector('input[name="property_type"]:checked')?.value || 'Коттедж';
+  const isPrivate    = ownerType === 'Собственник';
   const body = {
     name:          document.getElementById('cottage-name').value.trim(),
     capacity:      isPrivate ? 0 : (document.getElementById('cottage-capacity').value || 0),
@@ -79,6 +87,7 @@ async function submitCottage(e) {
     description:   document.getElementById('cottage-description').value.trim(),
     contacts:      isPrivate ? document.getElementById('cottage-contacts').value.trim() : '',
     owner_type:    ownerType,
+    property_type: propertyType,
     owner_name:    isPrivate ? document.getElementById('cottage-owner-name').value.trim() : '',
   };
   const url    = id ? `/cottages/${id}` : '/cottages';

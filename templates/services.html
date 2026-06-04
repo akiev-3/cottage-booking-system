@@ -193,12 +193,12 @@
             <span class="owner-btn owner-btn-alma">🏠 Коттеджи</span>
           </label>
           <label class="owner-option">
-            <input type="radio" name="svc_owner" value="Собственник" onchange="onOwnerTypeChange()">
-            <span class="owner-btn owner-btn-private">👤 Собственник</span>
-          </label>
-          <label class="owner-option">
             <input type="radio" name="svc_owner" value="Номера отеля" onchange="onOwnerTypeChange()">
             <span class="owner-btn owner-btn-hotel">🏨 Отель</span>
+          </label>
+          <label class="owner-option">
+            <input type="radio" name="svc_owner" value="Собственник" onchange="onOwnerTypeChange()">
+            <span class="owner-btn owner-btn-private">👤 Собственник</span>
           </label>
         </div>
       </div>
@@ -359,11 +359,16 @@ function onOwnerTypeChange() {
     o.textContent = `${s.name} (${Math.round(s.price)} сом/${s.unit})`;
     sel.appendChild(o);
   });
-  // Фильтруем коттеджи
-  const dbOwner = ownerType; // 'Алма-Ата' или 'Собственник'
+  // Фильтруем коттеджи: Коттеджи/Номера отеля → owner_type='Компания' + property_type
+  //                       Собственник → owner_type='Собственник'
   const csel = document.getElementById('order-cottage');
   csel.innerHTML = '<option value="">— не указывать —</option>';
-  COTTAGES.filter(c => c.owner_type === dbOwner).forEach(c => {
+  COTTAGES.filter(c => {
+    if (ownerType === 'Собственник') return c.owner_type === 'Собственник';
+    if (ownerType === 'Коттеджи')    return c.owner_type === 'Компания' && c.property_type === 'Коттедж';
+    if (ownerType === 'Номера отеля') return c.owner_type === 'Компания' && c.property_type === 'Номер отеля';
+    return true;
+  }).forEach(c => {
     const o = document.createElement('option');
     o.value = c.id; o.textContent = c.name;
     csel.appendChild(o);

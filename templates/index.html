@@ -33,25 +33,37 @@
 <main>
   <div class="owner-filter">
     <button class="filter-btn active" onclick="filterCottages('all', this)">Все</button>
-    <button class="filter-btn" onclick="filterCottages('cottages', this)">🏠 Коттеджи</button>
+    <button class="filter-btn" onclick="filterCottages('cottage-company', this)">🏠 Коттеджи</button>
+    <button class="filter-btn" onclick="filterCottages('hotel-company', this)">🏨 Номера отеля</button>
     <button class="filter-btn" onclick="filterCottages('private', this)">👤 Собственники</button>
-    <button class="filter-btn" onclick="filterCottages('hotel', this)">🏨 Номера отеля</button>
   </div>
 
   <div id="cottages-grid" class="cottages-grid">
     {% for cottage in cottages %}
     {% set otype = cottage.owner_type %}
+    {% set ptype = cottage.property_type %}
     <div class="cottage-card" id="card-{{ cottage.id }}"
-         data-owner="{{ 'private' if otype=='Собственник' else ('hotel' if otype=='Номера отеля' else 'cottages') }}">
+         data-owner="{{ 'private' if otype=='Собственник' else 'company' }}"
+         data-ptype="{{ 'hotel' if ptype=='Номер отеля' else 'cottage' }}">
       <div class="card-header">
         <h2>{{ cottage.name }}</h2>
         <div class="card-actions">
-          <button class="btn btn-sm btn-outline" onclick="editCottage({{ cottage.id }}, '{{ cottage.name|e }}', {{ cottage.capacity or 0 }}, {{ cottage.price_per_day or 0 }}, '{{ cottage.description|e }}', '{{ otype }}', '{{ (cottage.owner_name or '')|e }}', '{{ cottage.contacts|e }}')">✏️</button>
+          <button class="btn btn-sm btn-outline" onclick="editCottage({{ cottage.id }}, '{{ cottage.name|e }}', {{ cottage.capacity or 0 }}, {{ cottage.price_per_day or 0 }}, '{{ cottage.description|e }}', '{{ otype }}', '{{ (cottage.owner_name or '')|e }}', '{{ cottage.contacts|e }}', '{{ ptype }}')">✏️</button>
           <button class="btn btn-sm btn-danger" onclick="deleteCottage({{ cottage.id }})">🗑️</button>
         </div>
       </div>
       <div class="card-body">
         {% if otype == 'Собственник' %}
+          <div class="info-row">
+            <span class="label">🏠 Тип</span>
+            <span class="value">
+              {% if ptype == 'Номер отеля' %}
+                <span class="owner-badge owner-hotel">🏨 Номер отеля</span>
+              {% else %}
+                <span class="owner-badge owner-alma">🏠 Коттедж</span>
+              {% endif %}
+            </span>
+          </div>
           {% if cottage.owner_name %}
           <div class="info-row">
             <span class="label">👤 Собственник</span>
@@ -68,10 +80,10 @@
           <div class="info-row">
             <span class="label">🏠 Тип</span>
             <span class="value">
-              {% if otype == 'Номера отеля' %}
-                <span class="owner-badge owner-hotel">🏨 Номера отеля</span>
+              {% if ptype == 'Номер отеля' %}
+                <span class="owner-badge owner-hotel">🏨 Номер отеля</span>
               {% else %}
-                <span class="owner-badge owner-alma">🏠 Коттеджи</span>
+                <span class="owner-badge owner-alma">🏠 Коттедж</span>
               {% endif %}
             </span>
           </div>
@@ -117,19 +129,28 @@
         <input type="text" id="cottage-name" required placeholder="Например: Коттедж №1 / Номер 201">
       </div>
       <div class="form-group">
-        <label>Тип *</label>
+        <label>Тип объекта *</label>
         <div class="owner-toggle">
           <label class="owner-option">
-            <input type="radio" name="owner_type" id="owner-cottages" value="Коттеджи" checked onchange="onOwnerToggle()">
-            <span class="owner-btn owner-btn-alma">🏠 Коттеджи</span>
+            <input type="radio" name="property_type" id="ptype-cottage" value="Коттедж" checked onchange="onOwnerToggle()">
+            <span class="owner-btn owner-btn-alma">🏠 Коттедж</span>
+          </label>
+          <label class="owner-option">
+            <input type="radio" name="property_type" id="ptype-hotel" value="Номер отеля" onchange="onOwnerToggle()">
+            <span class="owner-btn owner-btn-hotel">🏨 Номер отеля</span>
+          </label>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Владелец *</label>
+        <div class="owner-toggle">
+          <label class="owner-option">
+            <input type="radio" name="owner_type" id="owner-company" value="Компания" checked onchange="onOwnerToggle()">
+            <span class="owner-btn owner-btn-alma">🏢 Компания</span>
           </label>
           <label class="owner-option">
             <input type="radio" name="owner_type" id="owner-private" value="Собственник" onchange="onOwnerToggle()">
             <span class="owner-btn owner-btn-private">👤 Собственник</span>
-          </label>
-          <label class="owner-option">
-            <input type="radio" name="owner_type" id="owner-hotel" value="Номера отеля" onchange="onOwnerToggle()">
-            <span class="owner-btn owner-btn-hotel">🏨 Отель</span>
           </label>
         </div>
       </div>

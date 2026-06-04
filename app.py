@@ -49,18 +49,23 @@ def init_db():
             price_per_day FLOAT        DEFAULT 0,
             description   TEXT         DEFAULT '',
             contacts      TEXT         DEFAULT '',
-            owner_type    VARCHAR(50)  DEFAULT 'Коттеджи',
+            owner_type    VARCHAR(50)  DEFAULT 'Компания',
+            property_type VARCHAR(50)  DEFAULT 'Коттедж',
             owner_name    VARCHAR(255) DEFAULT ''
         )
     """)
-    # Миграции
-    cur.execute("ALTER TABLE cottages ADD COLUMN IF NOT EXISTS owner_type  VARCHAR(50)  DEFAULT 'Коттеджи'")
-    cur.execute("ALTER TABLE cottages ADD COLUMN IF NOT EXISTS owner_name  VARCHAR(255) DEFAULT ''")
-    cur.execute("ALTER TABLE cottages ADD COLUMN IF NOT EXISTS contacts    TEXT         DEFAULT ''")
-    cur.execute("ALTER TABLE cottages ADD COLUMN IF NOT EXISTS capacity    INT          DEFAULT 0")
-    cur.execute("ALTER TABLE cottages ADD COLUMN IF NOT EXISTS price_per_day FLOAT      DEFAULT 0")
-    # Переименуем "Алма-Ата" → "Коттеджи"
-    cur.execute("UPDATE cottages SET owner_type = 'Коттеджи' WHERE owner_type = 'Алма-Ата'")
+    # Миграции колонок
+    cur.execute("ALTER TABLE cottages ADD COLUMN IF NOT EXISTS owner_type    VARCHAR(50)  DEFAULT 'Компания'")
+    cur.execute("ALTER TABLE cottages ADD COLUMN IF NOT EXISTS property_type VARCHAR(50)  DEFAULT 'Коттедж'")
+    cur.execute("ALTER TABLE cottages ADD COLUMN IF NOT EXISTS owner_name    VARCHAR(255) DEFAULT ''")
+    cur.execute("ALTER TABLE cottages ADD COLUMN IF NOT EXISTS contacts      TEXT         DEFAULT ''")
+    cur.execute("ALTER TABLE cottages ADD COLUMN IF NOT EXISTS capacity      INT          DEFAULT 0")
+    cur.execute("ALTER TABLE cottages ADD COLUMN IF NOT EXISTS price_per_day FLOAT        DEFAULT 0")
+    # Миграция данных: старые owner_type → новые owner_type + property_type
+    cur.execute("UPDATE cottages SET owner_type='Компания',  property_type='Коттедж'     WHERE owner_type IN ('Алма-Ата','Коттеджи')")
+    cur.execute("UPDATE cottages SET owner_type='Компания',  property_type='Номер отеля' WHERE owner_type = 'Номера отеля'")
+    cur.execute("UPDATE cottages SET owner_type='Собственник'                            WHERE owner_type = 'Собственник' AND property_type IS NULL")
+    cur.execute("UPDATE cottages SET property_type='Коттедж' WHERE property_type IS NULL OR property_type = ''")
     # Для собственников: перенести description → contacts (если contacts пусто)
     cur.execute("""
         UPDATE cottages
@@ -267,16 +272,17 @@ def update_settings():
 def create_cottage():
     body = request.json
     conn = get_db(); cur = conn.cursor()
-    owner_type = body.get("owner_type", "Коттеджи")
+    owner_type    = body.get("owner_type", "Компания")
+    property_type = body.get("property_type", "Коттедж")
     cur.execute("""
-        INSERT INTO cottages (name, capacity, price_per_day, description, contacts, owner_type, owner_name)
-        VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING *
+        INSERT INTO cottages (name, capacity, price_per_day, description, contacts, owner_type, property_type, owner_name)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s) RETURNING *
     """, (body["name"],
           int(body.get("capacity") or 0),
           float(body.get("price_per_day") or 0),
           body.get("description",""),
           body.get("contacts",""),
-          owner_type,
+          owner_type, property_type,
           body.get("owner_name","")))
     cottage = dict(cur.fetchone())
     conn.commit(); cur.close(); conn.close()
@@ -288,17 +294,18 @@ def create_cottage():
 def update_cottage(cottage_id):
     body = request.json
     conn = get_db(); cur = conn.cursor()
-    owner_type = body.get("owner_type", "Коттеджи")
+    owner_type    = body.get("owner_type", "Компания")
+    property_type = body.get("property_type", "Коттедж")
     cur.execute("""
         UPDATE cottages SET name=%s, capacity=%s, price_per_day=%s,
-                            description=%s, contacts=%s, owner_type=%s, owner_name=%s
+                            description=%s, contacts=%s, owner_type=%s, property_type=%s, owner_name=%s
         WHERE id=%s RETURNING *
     """, (body["name"],
           int(body.get("capacity") or 0),
           float(body.get("price_per_day") or 0),
           body.get("description",""),
           body.get("contacts",""),
-          owner_type,
+          owner_type, property_type,
           body.get("owner_name",""),
           cottage_id))
     row = cur.fetchone()
@@ -943,12 +950,15 @@ with app.app_context():
 @app.route("/export/excel/owner/<owner_type>")
 @login_required
 def export_excel_by_owner(owner_type):
-    MAP = {"company": ("Коттеджи",    "Коттеджи"),
-           "private": ("Собственники", "Собственник"),
-           "hotel":   ("Номера отеля", "Номера отеля")}
-    label, db_owner = MAP.get(owner_type, ("Все", None))
-    if not db_owner:
+    # company = коттеджи компании, hotel = номера компании, private = все собственники
+    MAP = {
+        "company": ("Коттеджи компании",  "owner_type='Компания'  AND property_type='Коттедж'"),
+        "hotel":   ("Номера отеля",        "owner_type='Компания'  AND property_type='Номер отеля'"),
+        "private": ("Собственники",        "owner_type='Собственник'"),
+    }
+    if owner_type not in MAP:
         return redirect(url_for("export_excel"))
+    label, where_clause = MAP[owner_type]
 
     # ── Собственники — справочник карточек, а не брони ────
     if owner_type == "private":
@@ -992,7 +1002,7 @@ def export_excel_by_owner(owner_type):
 
     # ── Коттеджи / Номера отеля — брони ───────────────────
     conn = get_db(); cur = conn.cursor()
-    cur.execute("SELECT * FROM cottages WHERE owner_type = %s ORDER BY name", (db_owner,))
+    cur.execute(f"SELECT * FROM cottages WHERE {where_clause} ORDER BY name")
     cottages = [dict(r) for r in cur.fetchall()]
     cottage_ids = [c["id"] for c in cottages]
 

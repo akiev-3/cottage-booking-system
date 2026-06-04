@@ -817,19 +817,21 @@ def export_excel():
     ws.freeze_panes = "A2"
     ws.auto_filter.ref = f"A1:L{last}"
 
-    # Лист: Сводка
+    # Лист: Сводка — только коттеджи и номера компании (без частников)
+    company_cottages = [c for c in cottages if c.get("owner_type") == "Компания"]
     ws2 = wb.create_sheet("Сводка")
-    sh  = ["Коттедж","Вместимость","$/сутки","Броней","Ночей","Выручка ($)","Выручка (сом)"]
-    sw  = [22,13,12,9,10,14,16]
+    sh  = ["№","Объект","Тип","Вместимость","$/сутки","Броней","Ночей","Выручка ($)","Выручка (сом)"]
+    sw  = [5,22,14,13,12,9,10,14,16]
     hf  = Font(bold=True,color="FFFFFF"); hfill=_header_fill("4F6EF7")
     border=_thin_border(); center=Alignment(horizontal="center",vertical="center")
     for col,(h,w) in enumerate(zip(sh,sw),1):
         cell=ws2.cell(row=1,column=col,value=h)
         cell.font=hf;cell.fill=hfill;cell.alignment=center;cell.border=border
         ws2.column_dimensions[cell.column_letter].width=w
-    for ri,c in enumerate(cottages,2):
+    for seq,(ri,c) in enumerate(zip(range(2, 2+len(company_cottages)), company_cottages), 1):
         cb=[b for b in all_bookings if b["cottage_id"]==c["id"]]
-        vals=[c["name"],c["capacity"],c["price_per_day"],len(cb),
+        vals=[seq, c["name"], c.get("property_type","Коттедж"),
+              c["capacity"], c["price_per_day"], len(cb),
               sum(b["nights"] for b in cb),
               round(sum(b["total"] for b in cb)),
               round(sum(b["total_som"] or 0 for b in cb))]

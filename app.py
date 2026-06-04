@@ -78,6 +78,67 @@ def init_db():
         VALUES ('rate', '500')
         ON CONFLICT (key) DO NOTHING
     """)
+
+    # ── Прайс-лист услуг ──────────────────────────────────
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS service_catalog (
+            id        SERIAL PRIMARY KEY,
+            category  VARCHAR(50)  NOT NULL,
+            name      VARCHAR(255) NOT NULL,
+            unit      VARCHAR(30)  DEFAULT 'шт',
+            price     FLOAT        NOT NULL,
+            has_plate BOOLEAN      DEFAULT FALSE
+        )
+    """)
+    # Заполняем дефолтный прайс-лист (только если пустой)
+    cur.execute("SELECT COUNT(*) as cnt FROM service_catalog")
+    if cur.fetchone()["cnt"] == 0:
+        defaults = [
+            ("cleaning",    "Уборка — малый коттедж",          "шт",    6000, False),
+            ("cleaning",    "Уборка — большой коттедж",        "шт",    8000, False),
+            ("cleaning",    "Мытьё окон",                      "шт",    5000, False),
+            ("cleaning",    "Уборка после ремонта",            "м²",     100, False),
+            ("parking",     "Парковка (собственник)",          "сутки",   50, True),
+            ("parking",     "Парковка (гость/арендатор)",      "сутки",  100, True),
+            ("specialist",  "Вызов сантехника",                "шт",    2000, False),
+            ("specialist",  "Вызов электрика",                 "шт",    2000, False),
+            ("laundry",     "Простынь двуспальная Х/Б",        "шт",     400, False),
+            ("laundry",     "Простынь малая Х/Б",              "шт",     250, False),
+            ("laundry",     "Простынь махровая",               "шт",     500, False),
+            ("laundry",     "Пододеяльник односпальный Х/Б",   "шт",     400, False),
+            ("laundry",     "Наволочка Х/Б",                   "шт",     100, False),
+            ("laundry",     "Полотенце большое",               "шт",     400, False),
+            ("laundry",     "Полотенце среднее",               "шт",     300, False),
+            ("laundry",     "Полотенце маленькое",             "шт",     200, False),
+            ("laundry",     "Салфетка столовая",               "шт",     100, False),
+            ("laundry",     "Халат махровый",                  "шт",     500, False),
+            ("laundry",     "Халат Х/Б",                       "шт",     400, False),
+            ("laundry",     "Домашний текстиль (шторы, тюль)", "кг",     800, False),
+        ]
+        cur.executemany(
+            "INSERT INTO service_catalog (category, name, unit, price, has_plate) VALUES (%s,%s,%s,%s,%s)",
+            defaults
+        )
+
+    # ── Журнал заказов услуг ──────────────────────────────
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS service_orders (
+            id           SERIAL PRIMARY KEY,
+            service_id   INT REFERENCES service_catalog(id) ON DELETE SET NULL,
+            service_name VARCHAR(255),
+            category     VARCHAR(50),
+            cottage_id   INT REFERENCES cottages(id) ON DELETE SET NULL,
+            cottage_name VARCHAR(255) DEFAULT '',
+            service_date DATE        NOT NULL,
+            quantity     FLOAT       DEFAULT 1,
+            price        FLOAT       NOT NULL,
+            total        FLOAT       NOT NULL,
+            plate        VARCHAR(30) DEFAULT '',
+            notes        TEXT        DEFAULT '',
+            created_at   TIMESTAMP   DEFAULT NOW()
+        )
+    """)
+
     conn.commit()
     cur.close()
     conn.close()
@@ -318,6 +379,126 @@ def cottage_bookings_page(cottage_id):
     cur.close(); conn.close()
     return render_template("cottage.html", cottage=dict(cottage),
                            bookings=bookings, today=today, rate=rate)
+
+
+# ── Services ──────────────────────────────────────────────
+
+CATEGORY_LABELS = {
+    "cleaning":   "🧹 Уборка",
+    "parking":    "🚗 Парковка",
+    "laundry":    "👕 Стирка",
+    "specialist": "🔧 Специалист",
+}
+
+@app.route("/services")
+@login_required
+def services_page():
+    conn = get_db(); cur = conn.cursor()
+    cur.execute("SELECT * FROM service_catalog ORDER BY category, id")
+    catalog = [dict(r) for r in cur.fetchall()]
+    cur.execute("""
+        SELECT so.*, c.name as cname
+        FROM service_orders so
+        LEFT JOIN cottages c ON c.id = so.cottage_id
+        ORDER BY so.service_date DESC, so.id DESC
+    """)
+    orders = [dict(r) for r in cur.fetchall()]
+    for o in orders:
+        if isinstance(o.get("service_date"), date):
+            o["service_date"] = o["service_date"].isoformat()
+    cur.execute("SELECT * FROM cottages ORDER BY name")
+    cottages = [dict(r) for r in cur.fetchall()]
+    cur.close(); conn.close()
+    return render_template("services.html",
+        catalog=catalog, orders=orders,
+        cottages=cottages, categories=CATEGORY_LABELS)
+
+
+@app.route("/service-catalog/<int:item_id>", methods=["PUT"])
+@login_required
+def update_catalog_item(item_id):
+    body = request.json
+    conn = get_db(); cur = conn.cursor()
+    cur.execute("""
+        UPDATE service_catalog SET name=%s, price=%s, unit=%s
+        WHERE id=%s RETURNING *
+    """, (body["name"], float(body["price"]), body["unit"], item_id))
+    row = cur.fetchone()
+    conn.commit(); cur.close(); conn.close()
+    if not row: return jsonify({"error": "Не найдено"}), 404
+    return jsonify(dict(row))
+
+
+@app.route("/service-catalog", methods=["POST"])
+@login_required
+def add_catalog_item():
+    body = request.json
+    conn = get_db(); cur = conn.cursor()
+    cur.execute("""
+        INSERT INTO service_catalog (category, name, unit, price, has_plate)
+        VALUES (%s,%s,%s,%s,%s) RETURNING *
+    """, (body["category"], body["name"], body.get("unit","шт"),
+          float(body["price"]), body.get("has_plate", False)))
+    row = dict(cur.fetchone())
+    conn.commit(); cur.close(); conn.close()
+    return jsonify(row), 201
+
+
+@app.route("/service-catalog/<int:item_id>", methods=["DELETE"])
+@login_required
+def delete_catalog_item(item_id):
+    conn = get_db(); cur = conn.cursor()
+    cur.execute("DELETE FROM service_catalog WHERE id=%s", (item_id,))
+    conn.commit(); cur.close(); conn.close()
+    return jsonify({"ok": True})
+
+
+@app.route("/service-orders", methods=["POST"])
+@login_required
+def create_service_order():
+    body = request.json
+    conn = get_db(); cur = conn.cursor()
+
+    cur.execute("SELECT * FROM service_catalog WHERE id=%s", (int(body["service_id"]),))
+    svc = cur.fetchone()
+    if not svc:
+        cur.close(); conn.close()
+        return jsonify({"error": "Услуга не найдена"}), 404
+
+    cottage_id   = body.get("cottage_id") or None
+    cottage_name = ""
+    if cottage_id:
+        cur.execute("SELECT name FROM cottages WHERE id=%s", (int(cottage_id),))
+        c = cur.fetchone()
+        cottage_name = c["name"] if c else ""
+
+    qty   = float(body.get("quantity") or 1)
+    price = float(body.get("price") or svc["price"])
+    total = round(qty * price)
+
+    cur.execute("""
+        INSERT INTO service_orders
+            (service_id, service_name, category, cottage_id, cottage_name,
+             service_date, quantity, price, total, plate, notes)
+        VALUES (%s,%s,%s,%s,%s, %s,%s,%s,%s,%s,%s) RETURNING *
+    """, (svc["id"], svc["name"], svc["category"],
+          cottage_id, cottage_name,
+          body["service_date"], qty, price, total,
+          body.get("plate",""), body.get("notes","")))
+    order = dict(cur.fetchone())
+    conn.commit(); cur.close(); conn.close()
+    if isinstance(order.get("service_date"), date):
+        order["service_date"] = order["service_date"].isoformat()
+    return jsonify(order), 201
+
+
+@app.route("/service-orders/<int:order_id>", methods=["DELETE"])
+@login_required
+def delete_service_order(order_id):
+    conn = get_db(); cur = conn.cursor()
+    cur.execute("DELETE FROM service_orders WHERE id=%s", (order_id,))
+    conn.commit(); cur.close(); conn.close()
+    return jsonify({"ok": True})
 
 
 # ── Excel helpers ─────────────────────────────────────────

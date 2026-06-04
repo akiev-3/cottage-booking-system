@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Услуги — Коттеджи</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+<link rel="manifest" href="/static/manifest.json">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#4f6ef7">
+<style>
+  .tabs { display:flex; gap:4px; margin-bottom:24px; background:var(--card); border-radius:10px; padding:4px; box-shadow:var(--shadow); width:fit-content; }
+  .tab-btn { padding:8px 20px; border:none; border-radius:8px; cursor:pointer; font-size:0.88rem; font-weight:600; background:transparent; color:var(--muted); transition:all 0.15s; }
+  .tab-btn.active { background:var(--primary); color:#fff; }
+  .tab-content { display:none; }
+  .tab-content.active { display:block; }
+
+  /* Прайс-лист */
+  .catalog-section { margin-bottom:32px; }
+  .catalog-section h3 { font-size:1rem; font-weight:700; margin-bottom:12px; color:var(--text); }
+  .catalog-table { width:100%; border-collapse:collapse; background:var(--card); border-radius:var(--radius); box-shadow:var(--shadow); overflow:hidden; }
+  .catalog-table th { background:var(--bg); padding:10px 14px; text-align:left; font-size:0.78rem; text-transform:uppercase; letter-spacing:0.04em; color:var(--muted); border-bottom:1px solid var(--border); }
+  .catalog-table td { padding:11px 14px; border-bottom:1px solid var(--border); font-size:0.88rem; vertical-align:middle; }
+  .catalog-table tr:last-child td { border-bottom:none; }
+  .catalog-table tr:hover td { background:#f8fafd; }
+  .inline-input { border:1.5px solid transparent; border-radius:6px; padding:4px 8px; font-size:0.88rem; background:transparent; font-family:inherit; color:var(--text); width:100%; }
+  .inline-input:focus { outline:none; border-color:var(--primary); background:#fff; }
+  .save-row-btn { display:none; }
+  .catalog-table tr:hover .save-row-btn { display:inline-flex; }
+
+  /* Заказы */
+  .orders-table-wrap { background:var(--card); border-radius:var(--radius); box-shadow:var(--shadow); overflow-x:auto; }
+  .orders-table { width:100%; border-collapse:collapse; font-size:0.88rem; }
+  .orders-table th { background:var(--bg); padding:10px 14px; text-align:left; font-size:0.78rem; text-transform:uppercase; letter-spacing:0.04em; color:var(--muted); border-bottom:1px solid var(--border); white-space:nowrap; }
+  .orders-table td { padding:11px 14px; border-bottom:1px solid var(--border); vertical-align:middle; white-space:nowrap; }
+  .orders-table tr:last-child td { border-bottom:none; }
+  .orders-table tr:hover td { background:#f8fafd; }
+
+  .category-badge { display:inline-block; padding:2px 8px; border-radius:20px; font-size:0.75rem; font-weight:600; }
+  .cat-cleaning   { background:#dbeafe; color:#1d4ed8; }
+  .cat-parking    { background:#fef3c7; color:#b45309; }
+  .cat-laundry    { background:#f3e8ff; color:#7c3aed; }
+  .cat-specialist { background:#dcfce7; color:#166534; }
+
+  .plate-badge { background:#1e293b; color:#f1f5f9; font-size:0.78rem; font-weight:700; padding:2px 8px; border-radius:4px; letter-spacing:0.06em; font-family:monospace; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="header-left">
+    <a href="/" class="back-link">← Коттеджи</a>
+    <h1>🛎️ Услуги</h1>
+  </div>
+  <div class="header-right">
+    <button class="btn btn-success" onclick="openModal('modal-order')">+ Новый заказ</button>
+    <a href="/logout" class="btn btn-outline">Выйти</a>
+  </div>
+</header>
+
+<main>
+  <!-- Табы -->
+  <div class="tabs">
+    <button class="tab-btn active" onclick="switchTab('orders')">📋 Заказы</button>
+    <button class="tab-btn"        onclick="switchTab('catalog')">💰 Прайс-лист</button>
+  </div>
+
+  <!-- ── Заказы ── -->
+  <div id="tab-orders" class="tab-content active">
+    {% if orders %}
+    <div class="orders-table-wrap">
+      <table class="orders-table">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Дата</th>
+            <th>Услуга</th>
+            <th>Категория</th>
+            <th>Коттедж</th>
+            <th>Кол-во</th>
+            <th>Цена</th>
+            <th>Итого</th>
+            <th>Гос. номер</th>
+            <th>Заметки</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="orders-body">
+          {% for o in orders %}
+          <tr id="orow-{{ o.id }}">
+            <td>{{ o.id }}</td>
+            <td>{{ o.service_date|fmtdate }}</td>
+            <td><strong>{{ o.service_name }}</strong></td>
+            <td>
+              <span class="category-badge cat-{{ o.category }}">
+                {{ categories.get(o.category, o.category) }}
+              </span>
+            </td>
+            <td>{{ o.cottage_name or '—' }}</td>
+            <td>{{ o.quantity }}</td>
+            <td>{{ "%.0f"|format(o.price) }} сом</td>
+            <td><strong>{{ "%.0f"|format(o.total) }} сом</strong></td>
+            <td>{% if o.plate %}<span class="plate-badge">{{ o.plate }}</span>{% else %}—{% endif %}</td>
+            <td style="max-width:160px;color:var(--muted);font-size:0.82rem">{{ o.notes }}</td>
+            <td><button class="btn btn-sm btn-danger" onclick="deleteOrder({{ o.id }})">🗑️</button></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="empty-state">
+      <p>Заказов пока нет.<br>Нажмите «+ Новый заказ» чтобы добавить.</p>
+    </div>
+    {% endif %}
+  </div>
+
+  <!-- ── Прайс-лист ── -->
+  <div id="tab-catalog" class="tab-content">
+    {% set ns = namespace(cur_cat='') %}
+    {% for item in catalog %}
+      {% if item.category != ns.cur_cat %}
+        {% if ns.cur_cat != '' %}</table></div>{% endif %}
+        {% set ns.cur_cat = item.category %}
+        <div class="catalog-section">
+        <h3>{{ categories.get(item.category, item.category) }}</h3>
+        <table class="catalog-table">
+          <thead><tr><th>Услуга</th><th>Ед.</th><th>Цена (сом)</th><th></th></tr></thead>
+          <tbody>
+      {% endif %}
+          <tr id="crow-{{ item.id }}">
+            <td><input class="inline-input" id="cname-{{ item.id }}" value="{{ item.name }}" onchange="markChanged({{ item.id }})"></td>
+            <td style="width:80px"><input class="inline-input" id="cunit-{{ item.id }}" value="{{ item.unit }}" style="width:70px" onchange="markChanged({{ item.id }})"></td>
+            <td style="width:130px"><input class="inline-input" id="cprice-{{ item.id }}" type="number" value="{{ item.price }}" style="width:110px" onchange="markChanged({{ item.id }})"></td>
+            <td style="width:120px">
+              <button id="csave-{{ item.id }}" class="btn btn-sm btn-primary save-row-btn" onclick="saveCatalogItem({{ item.id }})">Сохранить</button>
+              <button class="btn btn-sm btn-danger" onclick="deleteCatalogItem({{ item.id }})">🗑️</button>
+            </td>
+          </tr>
+    {% endfor %}
+    {% if catalog %}</table></div>{% endif %}
+
+    <button class="btn btn-outline" style="margin-top:12px" onclick="openModal('modal-add-service')">+ Добавить услугу в прайс</button>
+  </div>
+</main>
+
+<!-- Modal: Новый заказ -->
+<div id="modal-order" class="modal-overlay" onclick="closeModalOverlay(event,'modal-order')">
+  <div class="modal">
+    <div class="modal-header">
+      <h3>Новый заказ услуги</h3>
+      <button class="close-btn" onclick="closeModal('modal-order')">✕</button>
+    </div>
+    <form id="form-order" onsubmit="submitOrder(event)">
+      <div class="form-group">
+        <label>Услуга *</label>
+        <select id="order-service" required onchange="onServiceChange()" style="width:100%;padding:10px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:0.9rem;background:var(--bg);color:var(--text)">
+          <option value="">— выберите —</option>
+          {% for item in catalog %}
+          <option value="{{ item.id }}" data-price="{{ item.price }}" data-unit="{{ item.unit }}" data-plate="{{ item.has_plate|lower }}" data-cat="{{ item.category }}">
+            {{ categories.get(item.category,'') }} {{ item.name }} ({{ item.price|int }} сом/{{ item.unit }})
+          </option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Дата *</label>
+          <input type="date" id="order-date" required onchange="calcOrderTotal()">
+        </div>
+        <div class="form-group">
+          <label>Коттедж</label>
+          <select id="order-cottage" style="width:100%;padding:10px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:0.9rem;background:var(--bg);color:var(--text)">
+            <option value="">— не указывать —</option>
+            {% for c in cottages %}
+            <option value="{{ c.id }}">{{ c.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Кол-во / дней / м²</label>
+          <input type="number" id="order-qty" value="1" min="0.1" step="0.1" onchange="calcOrderTotal()">
+          <small id="order-unit-hint" class="hint"></small>
+        </div>
+        <div class="form-group">
+          <label>Цена за ед. (сом)</label>
+          <input type="number" id="order-price" min="0" step="1" onchange="calcOrderTotal()">
+        </div>
+      </div>
+      <!-- Поле гос. номера — показывается только для парковки -->
+      <div class="form-group" id="plate-group" style="display:none">
+        <label>🚗 Гос. номер *</label>
+        <input type="text" id="order-plate" placeholder="01 KG 123 AB" style="text-transform:uppercase;font-family:monospace;font-size:1rem;letter-spacing:0.08em">
+      </div>
+      <div class="form-group">
+        <label>Заметки</label>
+        <textarea id="order-notes" rows="2" placeholder="Дополнительная информация..."></textarea>
+      </div>
+      <div id="order-total-block" class="total-block" style="display:none">
+        <span>Итого: <strong id="order-total"></strong></span>
+        <span class="nights-label" id="order-qty-label"></span>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline" onclick="closeModal('modal-order')">Отмена</button>
+        <button type="submit" class="btn btn-success">Сохранить заказ</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Modal: Добавить услугу в прайс -->
+<div id="modal-add-service" class="modal-overlay" onclick="closeModalOverlay(event,'modal-add-service')">
+  <div class="modal">
+    <div class="modal-header">
+      <h3>Новая услуга в прайс-лист</h3>
+      <button class="close-btn" onclick="closeModal('modal-add-service')">✕</button>
+    </div>
+    <form id="form-add-service" onsubmit="submitAddService(event)">
+      <div class="form-group">
+        <label>Категория *</label>
+        <select id="new-svc-cat" required style="width:100%;padding:10px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:0.9rem;background:var(--bg);color:var(--text)">
+          <option value="cleaning">🧹 Уборка</option>
+          <option value="parking">🚗 Парковка</option>
+          <option value="laundry">👕 Стирка</option>
+          <option value="specialist">🔧 Специалист</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Название *</label>
+        <input type="text" id="new-svc-name" required placeholder="Название услуги">
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Единица</label>
+          <input type="text" id="new-svc-unit" value="шт" placeholder="шт / сутки / м² / кг">
+        </div>
+        <div class="form-group">
+          <label>Цена (сом) *</label>
+          <input type="number" id="new-svc-price" required min="0" step="1" placeholder="0">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline" onclick="closeModal('modal-add-service')">Отмена</button>
+        <button type="submit" class="btn btn-primary">Добавить</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div id="toast" class="toast"></div>
+
+<script>
+// Tabs
+function switchTab(name) {
+  document.querySelectorAll('.tab-btn').forEach((b,i) => b.classList.toggle('active', ['orders','catalog'][i]===name));
+  document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+  document.getElementById('tab-'+name).classList.add('active');
+}
+
+// Modal helpers
+function openModal(id)  { document.getElementById(id).classList.add('open'); }
+function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+function closeModalOverlay(e,id) { if(e.target.id===id) closeModal(id); }
+
+// Toast
+function showToast(msg, type='') {
+  const t = document.getElementById('toast');
+  t.textContent=msg; t.className='toast '+type;
+  void t.offsetWidth; t.classList.add('show');
+  setTimeout(()=>t.classList.remove('show'),3000);
+}
+
+// ── Заказ ──────────────────────────────────────────────
+function onServiceChange() {
+  const sel = document.getElementById('order-service');
+  const opt = sel.options[sel.selectedIndex];
+  if (!opt.value) return;
+  document.getElementById('order-price').value = opt.dataset.price;
+  document.getElementById('order-unit-hint').textContent = 'ед. — ' + opt.dataset.unit;
+  // Парковка — показываем поле гос. номера
+  const isParking = opt.dataset.plate === 'true';
+  const pg = document.getElementById('plate-group');
+  pg.style.display = isParking ? 'block' : 'none';
+  document.getElementById('order-plate').required = isParking;
+  calcOrderTotal();
+}
+
+function calcOrderTotal() {
+  const qty   = parseFloat(document.getElementById('order-qty').value)   || 0;
+  const price = parseFloat(document.getElementById('order-price').value) || 0;
+  const block = document.getElementById('order-total-block');
+  if (!qty || !price) { block.style.display='none'; return; }
+  const total = Math.round(qty * price);
+  document.getElementById('order-total').textContent    = total.toLocaleString('ru-RU') + ' сом';
+  document.getElementById('order-qty-label').textContent = qty + ' × ' + price.toLocaleString('ru-RU') + ' сом';
+  block.style.display = 'flex';
+}
+
+async function submitOrder(e) {
+  e.preventDefault();
+  const sel = document.getElementById('order-service');
+  const body = {
+    service_id:   sel.value,
+    service_date: document.getElementById('order-date').value,
+    cottage_id:   document.getElementById('order-cottage').value || null,
+    quantity:     document.getElementById('order-qty').value,
+    price:        document.getElementById('order-price').value,
+    plate:        document.getElementById('order-plate').value.toUpperCase(),
+    notes:        document.getElementById('order-notes').value.trim(),
+  };
+  const res  = await fetch('/service-orders', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
+  const data = await res.json();
+  if (!res.ok) { showToast(data.error,'error'); return; }
+  showToast('Заказ добавлен!','success');
+  closeModal('modal-order');
+  setTimeout(()=>location.reload(), 600);
+}
+
+async function deleteOrder(id) {
+  if (!confirm('Удалить заказ?')) return;
+  await fetch('/service-orders/'+id, {method:'DELETE'});
+  document.getElementById('orow-'+id)?.remove();
+  showToast('Заказ удалён');
+}
+
+// ── Прайс-лист ─────────────────────────────────────────
+function markChanged(id) {
+  const btn = document.getElementById('csave-'+id);
+  if (btn) btn.style.display = 'inline-flex';
+}
+
+async function saveCatalogItem(id) {
+  const body = {
+    name:  document.getElementById('cname-'+id).value.trim(),
+    unit:  document.getElementById('cunit-'+id).value.trim(),
+    price: document.getElementById('cprice-'+id).value,
+  };
+  const res = await fetch('/service-catalog/'+id, {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
+  if (!res.ok) { showToast('Ошибка сохранения','error'); return; }
+  document.getElementById('csave-'+id).style.display='none';
+  showToast('Цена обновлена','success');
+}
+
+async function deleteCatalogItem(id) {
+  if (!confirm('Удалить услугу из прайса?')) return;
+  await fetch('/service-catalog/'+id, {method:'DELETE'});
+  document.getElementById('crow-'+id)?.remove();
+  showToast('Услуга удалена');
+}
+
+async function submitAddService(e) {
+  e.preventDefault();
+  const body = {
+    category: document.getElementById('new-svc-cat').value,
+    name:     document.getElementById('new-svc-name').value.trim(),
+    unit:     document.getElementById('new-svc-unit').value.trim() || 'шт',
+    price:    document.getElementById('new-svc-price').value,
+  };
+  const res = await fetch('/service-catalog', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
+  if (!res.ok) { showToast('Ошибка','error'); return; }
+  showToast('Услуга добавлена','success');
+  closeModal('modal-add-service');
+  setTimeout(()=>location.reload(), 600);
+}
+
+// Установить сегодняшнюю дату по умолчанию
+document.getElementById('order-date').value = new Date().toISOString().slice(0,10);
+</script>
+</body>
+</html>

@@ -1,5 +1,5 @@
 Остановить сервер
-lsof -ti :5000 | xargs kill -9 
+lsof -ti :8080 | xargs kill -9
 
 
 запуск сервера

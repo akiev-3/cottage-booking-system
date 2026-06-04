@@ -93,6 +93,15 @@ def fmt_date(iso) -> str:
         return str(iso)
 
 
+def serialize_booking(row) -> dict:
+    """Конвертирует date-объекты PostgreSQL в строки ISO."""
+    b = dict(row)
+    for field in ("check_in", "check_out"):
+        if isinstance(b.get(field), date):
+            b[field] = b[field].isoformat()
+    return b
+
+
 def get_rate(cur) -> float:
     cur.execute("SELECT value FROM settings WHERE key = 'rate'")
     row = cur.fetchone()
@@ -216,7 +225,7 @@ def get_bookings():
         cur.execute("SELECT * FROM bookings WHERE cottage_id=%s ORDER BY check_in", (cottage_id,))
     else:
         cur.execute("SELECT * FROM bookings ORDER BY check_in")
-    rows = [dict(r) for r in cur.fetchall()]
+    rows = [serialize_booking(r) for r in cur.fetchall()]
     cur.close(); conn.close()
     return jsonify(rows)
 
@@ -303,7 +312,7 @@ def cottage_bookings_page(cottage_id):
         cur.close(); conn.close()
         return redirect(url_for("index"))
     cur.execute("SELECT * FROM bookings WHERE cottage_id = %s ORDER BY check_in", (cottage_id,))
-    bookings = [dict(r) for r in cur.fetchall()]
+    bookings = [serialize_booking(r) for r in cur.fetchall()]
     rate  = get_rate(cur)
     today = date.today().isoformat()
     cur.close(); conn.close()
@@ -381,7 +390,7 @@ def export_excel():
     cur.execute("SELECT * FROM cottages ORDER BY id")
     cottages = [dict(r) for r in cur.fetchall()]
     cur.execute("SELECT * FROM bookings ORDER BY check_in")
-    all_bookings = [dict(r) for r in cur.fetchall()]
+    all_bookings = [serialize_booking(r) for r in cur.fetchall()]
     cur.close(); conn.close()
 
     wb = Workbook()
@@ -445,7 +454,7 @@ def export_excel_cottage(cottage_id):
     cottage=cur.fetchone()
     if not cottage: cur.close();conn.close(); return jsonify({"error":"Не найдено"}),404
     cur.execute("SELECT * FROM bookings WHERE cottage_id=%s ORDER BY check_in",(cottage_id,))
-    bookings=[dict(r) for r in cur.fetchall()]
+    bookings=[serialize_booking(r) for r in cur.fetchall()]
     cur.close(); conn.close()
 
     wb=Workbook(); ws=wb.active; ws.title=cottage["name"][:31]
@@ -493,7 +502,7 @@ def _to_csv(bookings):
 def export_csv():
     conn=get_db(); cur=conn.cursor()
     cur.execute("SELECT * FROM bookings ORDER BY check_in")
-    bookings=[dict(r) for r in cur.fetchall()]
+    bookings=[serialize_booking(r) for r in cur.fetchall()]
     cur.close(); conn.close()
     buf=_to_csv(bookings)
     return send_file(io.BytesIO(buf.read().encode("utf-8-sig")),
@@ -508,7 +517,7 @@ def export_csv_cottage(cottage_id):
     cottage=cur.fetchone()
     if not cottage: cur.close();conn.close(); return jsonify({"error":"Не найдено"}),404
     cur.execute("SELECT * FROM bookings WHERE cottage_id=%s ORDER BY check_in",(cottage_id,))
-    bookings=[dict(r) for r in cur.fetchall()]
+    bookings=[serialize_booking(r) for r in cur.fetchall()]
     cur.close(); conn.close()
     buf=_to_csv(bookings)
     return send_file(io.BytesIO(buf.read().encode("utf-8-sig")),

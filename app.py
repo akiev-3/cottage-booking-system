@@ -822,6 +822,59 @@ with app.app_context():
     except Exception as e:
         print(f"DB init skipped (no DATABASE_URL?): {e}")
 
+@app.route("/export/excel/owner/<owner_type>")
+@login_required
+def export_excel_by_owner(owner_type):
+    """Excel только для коттеджей одного владельца: company=Алма-Ата, private=Собственник."""
+    label    = "Алма-Ата" if owner_type == "company" else "Собственники"
+    db_owner = "Алма-Ата" if owner_type == "company" else "Собственник"
+
+    conn = get_db(); cur = conn.cursor()
+    cur.execute("SELECT * FROM cottages WHERE owner_type = %s ORDER BY name", (db_owner,))
+    cottages = [dict(r) for r in cur.fetchall()]
+    cottage_ids = [c["id"] for c in cottages]
+
+    if cottage_ids:
+        cur.execute("""
+            SELECT * FROM bookings WHERE cottage_id = ANY(%s) ORDER BY check_in
+        """, (cottage_ids,))
+        all_bookings = [serialize_booking(r) for r in cur.fetchall()]
+    else:
+        all_bookings = []
+    cur.close(); conn.close()
+
+    wb = Workbook()
+
+    # Лист: Все брони
+    ws = wb.active; ws.title = f"Брони — {label}"
+    _write_headers(ws, row=1)
+    last = _write_rows(ws, all_bookings, start=2)
+    if all_bookings: _write_totals(ws, all_bookings, last + 1)
+    ws.freeze_panes = "A2"
+    ws.auto_filter.ref = f"A1:L{last}"
+
+    # Листы по каждому коттеджу
+    for c in cottages:
+        ws2 = wb.create_sheet(c["name"][:28])
+        ws2.merge_cells("A1:L1"); tc = ws2["A1"]
+        tc.value = f"{c['name']}  |  до {c['capacity']} чел.  |  ${int(c['price_per_day'])}/сутки"
+        tc.font  = Font(bold=True, size=12, color="2C3E50")
+        tc.fill  = PatternFill("solid", fgColor="EEF2FF")
+        tc.alignment = Alignment(horizontal="left", vertical="center")
+        ws2.row_dimensions[1].height = 26
+        _write_headers(ws2, row=2)
+        cb   = [b for b in all_bookings if b["cottage_id"] == c["id"]]
+        last = _write_rows(ws2, cb, start=3)
+        if cb: _write_totals(ws2, cb, last + 1)
+        ws2.freeze_panes = "A3"
+
+    buf = io.BytesIO(); wb.save(buf); buf.seek(0)
+    return send_file(buf,
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        as_attachment=True,
+        download_name=f"broni_{label}_{date.today()}.xlsx")
+
+
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))
     app.run(host="0.0.0.0", port=port, debug=True)

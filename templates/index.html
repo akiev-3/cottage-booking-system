@@ -18,16 +18,30 @@
   <div class="header-right">
     <a href="/services" class="btn btn-outline">🛎️ Услуги</a>
     <a href="/export/csv" class="btn btn-csv">⬇️ CSV</a>
-    <a href="/export/excel" class="btn btn-excel">⬇️ Excel</a>
+    <button class="btn btn-excel" onclick="toggleExcelMenu(event)">⬇️ Excel ▾</button>
+    <div id="excel-menu" class="dropdown-menu" style="display:none">
+      <a href="/export/excel" class="dropdown-item">📊 Все брони</a>
+      <a href="/export/excel/owner/company" class="dropdown-item">🏢 Алма-Ата</a>
+      <a href="/export/excel/owner/private" class="dropdown-item">👤 Собственники</a>
+    </div>
     <button class="btn btn-primary" onclick="openAddCottage()">+ Добавить коттедж</button>
     <a href="/logout" class="btn btn-outline">Выйти</a>
   </div>
 </header>
 
 <main>
+  <!-- Фильтр по владельцу -->
+  <div class="owner-filter">
+    <button class="filter-btn active" onclick="filterCottages('all', this)">Все</button>
+    <button class="filter-btn" onclick="filterCottages('alma', this)">🏢 Алма-Ата</button>
+    <button class="filter-btn" onclick="filterCottages('private', this)">👤 Собственники</button>
+  </div>
+
   <div id="cottages-grid" class="cottages-grid">
     {% for cottage in cottages %}
-    <div class="cottage-card" id="card-{{ cottage.id }}">
+    <div class="cottage-card"
+         id="card-{{ cottage.id }}"
+         data-owner="{{ 'private' if cottage.owner_type == 'Собственник' else 'alma' }}">
       <div class="card-header">
         <h2>{{ cottage.name }}</h2>
         <div class="card-actions">
@@ -40,9 +54,9 @@
           <span class="label">🏠 Владелец</span>
           <span class="value">
             {% if cottage.owner_type == 'Собственник' %}
-              <span class="owner-badge owner-private">Собственник{% if cottage.owner_name %}: {{ cottage.owner_name }}{% endif %}</span>
+              <span class="owner-badge owner-private">👤 Собственник{% if cottage.owner_name %}: {{ cottage.owner_name }}{% endif %}</span>
             {% else %}
-              <span class="owner-badge owner-alma">Алма-Ата</span>
+              <span class="owner-badge owner-alma">🏢 Алма-Ата</span>
             {% endif %}
           </span>
         </div>

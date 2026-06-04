@@ -3,6 +3,27 @@ function openModal(id) { document.getElementById(id).classList.add('open'); }
 function closeModal(id) { document.getElementById(id).classList.remove('open'); }
 function closeModalOverlay(e, id) { if (e.target.id === id) closeModal(id); }
 
+// ── Фильтр по владельцу ──
+function filterCottages(type, btn) {
+  document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  document.querySelectorAll('.cottage-card').forEach(card => {
+    const show = type === 'all' || card.dataset.owner === type;
+    card.style.display = show ? '' : 'none';
+  });
+}
+
+// ── Excel дропдаун ──
+function toggleExcelMenu(e) {
+  e.stopPropagation();
+  const menu = document.getElementById('excel-menu');
+  menu.style.display = menu.style.display === 'none' ? 'block' : 'none';
+}
+document.addEventListener('click', () => {
+  const menu = document.getElementById('excel-menu');
+  if (menu) menu.style.display = 'none';
+});
+
 // ── Toast ──
 function showToast(msg, type = '') {
   const t = document.getElementById('toast');

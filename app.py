@@ -4,6 +4,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 import os
 import io
 import csv
+import json
 from datetime import datetime, date
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
@@ -87,14 +88,17 @@ def init_db():
     # ── Прайс-лист услуг ──────────────────────────────────
     cur.execute("""
         CREATE TABLE IF NOT EXISTS service_catalog (
-            id        SERIAL PRIMARY KEY,
-            category  VARCHAR(50)  NOT NULL,
-            name      VARCHAR(255) NOT NULL,
-            unit      VARCHAR(30)  DEFAULT 'шт',
-            price     FLOAT        NOT NULL,
-            has_plate BOOLEAN      DEFAULT FALSE
+            id         SERIAL PRIMARY KEY,
+            category   VARCHAR(50)  NOT NULL,
+            name       VARCHAR(255) NOT NULL,
+            unit       VARCHAR(30)  DEFAULT 'шт',
+            price      FLOAT        NOT NULL,
+            has_plate  BOOLEAN      DEFAULT FALSE,
+            owner_type VARCHAR(50)  DEFAULT 'Алма-Ата'
         )
     """)
+    # Миграция
+    cur.execute("ALTER TABLE service_catalog ADD COLUMN IF NOT EXISTS owner_type VARCHAR(50) DEFAULT 'Алма-Ата'")
     # Заполняем дефолтный прайс-лист (только если пустой)
     cur.execute("SELECT COUNT(*) as cnt FROM service_catalog")
     if cur.fetchone()["cnt"] == 0:
@@ -425,7 +429,8 @@ def services_page():
     cur.close(); conn.close()
     return render_template("services.html",
         catalog=catalog, orders=orders,
-        cottages=cottages, categories=CATEGORY_LABELS)
+        cottages=cottages, categories=CATEGORY_LABELS,
+        catalog_json=json.dumps(catalog))
 
 
 @app.route("/service-catalog/<int:item_id>", methods=["PUT"])
@@ -434,9 +439,10 @@ def update_catalog_item(item_id):
     body = request.json
     conn = get_db(); cur = conn.cursor()
     cur.execute("""
-        UPDATE service_catalog SET name=%s, price=%s, unit=%s
+        UPDATE service_catalog SET name=%s, price=%s, unit=%s, owner_type=%s
         WHERE id=%s RETURNING *
-    """, (body["name"], float(body["price"]), body["unit"], item_id))
+    """, (body["name"], float(body["price"]), body["unit"],
+          body.get("owner_type","Алма-Ата"), item_id))
     row = cur.fetchone()
     conn.commit(); cur.close(); conn.close()
     if not row: return jsonify({"error": "Не найдено"}), 404
@@ -449,10 +455,11 @@ def add_catalog_item():
     body = request.json
     conn = get_db(); cur = conn.cursor()
     cur.execute("""
-        INSERT INTO service_catalog (category, name, unit, price, has_plate)
-        VALUES (%s,%s,%s,%s,%s) RETURNING *
+        INSERT INTO service_catalog (category, name, unit, price, has_plate, owner_type)
+        VALUES (%s,%s,%s,%s,%s,%s) RETURNING *
     """, (body["category"], body["name"], body.get("unit","шт"),
-          float(body["price"]), body.get("has_plate", False)))
+          float(body["price"]), body.get("has_plate", False),
+          body.get("owner_type","Алма-Ата")))
     row = dict(cur.fetchone())
     conn.commit(); cur.close(); conn.close()
     return jsonify(row), 201
@@ -473,11 +480,19 @@ def create_service_order():
     body = request.json
     conn = get_db(); cur = conn.cursor()
 
-    cur.execute("SELECT * FROM service_catalog WHERE id=%s", (int(body["service_id"]),))
-    svc = cur.fetchone()
+    svc = None
+    if body.get("service_id"):
+        cur.execute("SELECT * FROM service_catalog WHERE id=%s", (int(body["service_id"]),))
+        svc = cur.fetchone()
+
+    # Если услуга не из прайса — создаём «виртуальный» объект из переданных данных
     if not svc:
-        cur.close(); conn.close()
-        return jsonify({"error": "Услуга не найдена"}), 404
+        custom_name = body.get("custom_name","").strip()
+        if not custom_name:
+            cur.close(); conn.close()
+            return jsonify({"error": "Введите название услуги"}), 400
+        svc = {"id": None, "name": custom_name, "category": "cleaning",
+               "unit": "шт", "price": float(body.get("price",0)), "has_plate": False}
 
     cottage_id   = body.get("cottage_id") or None
     cottage_name = ""
@@ -500,12 +515,15 @@ def create_service_order():
 
     total = round(qty * price)
 
+    # Используем кастомное название если введено вручную
+    service_name = body.get("custom_name","").strip() or svc["name"]
+
     cur.execute("""
         INSERT INTO service_orders
             (service_id, service_name, category, cottage_id, cottage_name,
              service_date, end_date, quantity, price, total, plate, notes)
         VALUES (%s,%s,%s,%s,%s, %s,%s,%s,%s,%s,%s,%s) RETURNING *
-    """, (svc["id"], svc["name"], svc["category"],
+    """, (svc["id"], service_name, svc["category"],
           cottage_id, cottage_name,
           body["service_date"], end_date, qty, price, total,
           body.get("plate",""), body.get("notes","")))

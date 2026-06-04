@@ -554,36 +554,20 @@ def delete_service_order(order_id):
     return jsonify({"ok": True})
 
 
-@app.route("/export/excel/services")
-@login_required
-def export_excel_services():
-    conn = get_db(); cur = conn.cursor()
-    cur.execute("""
-        SELECT so.*, c.name as cname
-        FROM service_orders so
-        LEFT JOIN cottages c ON c.id = so.cottage_id
-        ORDER BY so.service_date, so.id
-    """)
-    orders = [dict(r) for r in cur.fetchall()]
-    for o in orders:
-        for f in ("service_date", "end_date"):
-            if isinstance(o.get(f), date):
-                o[f] = o[f].isoformat()
-    cur.close(); conn.close()
-
+def _build_services_excel(orders, sheet_title):
+    """Строит Excel-файл по списку заказов услуг."""
     wb  = Workbook()
     ws  = wb.active
-    ws.title = "Услуги"
+    ws.title = sheet_title[:31]
 
-    CAT_RU = {"cleaning":"Уборка","parking":"Парковка","laundry":"Стирка","specialist":"Специалист"}
-
-    headers    = ["№","Дата начала","Дата окончания","Категория","Услуга","Коттедж","Кол-во","Цена (сом)","Итого (сом)","Гос. номер","Заметки"]
-    col_widths = [6, 14, 16, 14, 34, 22, 8, 13, 14, 16, 30]
-
+    headers    = ["№","Дата начала","Дата окончания","Категория","Услуга",
+                  "Коттедж","Кол-во","Цена (сом)","Итого (сом)","Гос. номер","Заметки"]
+    col_widths = [6, 14, 16, 18, 34, 22, 8, 13, 14, 16, 30]
     hf     = Font(bold=True, color="FFFFFF")
     hfill  = _header_fill("4F6EF7")
     border = _thin_border()
     center = Alignment(horizontal="center", vertical="center")
+    CENTER = {1, 2, 3, 7, 8, 9}
 
     for col, (h, w) in enumerate(zip(headers, col_widths), 1):
         cell = ws.cell(row=1, column=col, value=h)
@@ -591,16 +575,12 @@ def export_excel_services():
         ws.column_dimensions[cell.column_letter].width = w
     ws.row_dimensions[1].height = 22
 
-    today  = date.today().isoformat()
-    CENTER = {1, 2, 3, 7, 8, 9}
-
     for ri, o in enumerate(orders, 2):
-        row_fill = PatternFill("solid", fgColor="FFFFFF")
         values = [
             o["id"],
             fmt_date(o["service_date"]) if o.get("service_date") else "",
             fmt_date(o["end_date"])     if o.get("end_date")     else "—",
-            CAT_RU.get(o.get("category",""), o.get("category","")),
+            o.get("category",""),
             o.get("service_name",""),
             o.get("cottage_name","") or "—",
             o.get("quantity", 1),
@@ -611,11 +591,11 @@ def export_excel_services():
         ]
         for col, val in enumerate(values, 1):
             cell = ws.cell(row=ri, column=col, value=val)
-            cell.fill=row_fill; cell.border=border
+            cell.fill = PatternFill("solid", fgColor="FFFFFF")
+            cell.border = border
             if col in CENTER:
                 cell.alignment = Alignment(horizontal="center")
 
-    # Итого
     if orders:
         last = len(orders) + 2
         bold = Font(bold=True)
@@ -623,18 +603,87 @@ def export_excel_services():
         for col in range(1, len(headers)+1):
             cell = ws.cell(row=last, column=col)
             cell.font=bold; cell.fill=fill; cell.border=border
-        ws.cell(row=last, column=1,  value="ИТОГО").font = bold
-        ws.cell(row=last, column=9,  value=round(sum(o.get("total",0) for o in orders))).font = bold
-        ws.cell(row=last, column=9).alignment = Alignment(horizontal="center")
+        ws.cell(row=last, column=1, value="ИТОГО").font = bold
+        total_cell = ws.cell(row=last, column=9, value=round(sum(o.get("total",0) for o in orders)))
+        total_cell.font = bold
+        total_cell.alignment = Alignment(horizontal="center")
 
     ws.freeze_panes = "A2"
-    ws.auto_filter.ref = f"A1:K{len(orders)+1}"
+    ws.auto_filter.ref = f"A1:K{max(len(orders),1)+1}"
+    return wb
 
+
+def _fetch_service_orders(cur, owner_type=None):
+    if owner_type:
+        cur.execute("""
+            SELECT so.*, c.owner_type as c_owner
+            FROM service_orders so
+            LEFT JOIN cottages c ON c.id = so.cottage_id
+            WHERE c.owner_type = %s OR (so.cottage_id IS NULL AND %s IS NOT NULL)
+            ORDER BY so.service_date, so.id
+        """, (owner_type, None))
+        # Фильтруем: заказы у коттеджей нужного типа + заказы без коттеджа не включаем
+        cur.execute("""
+            SELECT so.*
+            FROM service_orders so
+            JOIN cottages c ON c.id = so.cottage_id
+            WHERE c.owner_type = %s
+            ORDER BY so.service_date, so.id
+        """, (owner_type,))
+    else:
+        cur.execute("""
+            SELECT so.*
+            FROM service_orders so
+            ORDER BY so.service_date, so.id
+        """)
+    orders = [dict(r) for r in cur.fetchall()]
+    for o in orders:
+        for f in ("service_date", "end_date"):
+            if isinstance(o.get(f), date):
+                o[f] = o[f].isoformat()
+    return orders
+
+
+@app.route("/export/excel/services")
+@login_required
+def export_excel_services():
+    conn = get_db(); cur = conn.cursor()
+    orders = _fetch_service_orders(cur)
+    cur.close(); conn.close()
+    wb  = _build_services_excel(orders, "Все услуги")
     buf = io.BytesIO(); wb.save(buf); buf.seek(0)
     return send_file(buf,
         mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         as_attachment=True,
-        download_name=f"uslugi_{date.today()}.xlsx")
+        download_name=f"uslugi_vse_{date.today()}.xlsx")
+
+
+@app.route("/export/excel/services/alma")
+@login_required
+def export_excel_services_alma():
+    conn = get_db(); cur = conn.cursor()
+    orders = _fetch_service_orders(cur, owner_type="Алма-Ата")
+    cur.close(); conn.close()
+    wb  = _build_services_excel(orders, "Услуги — Алма-Ата")
+    buf = io.BytesIO(); wb.save(buf); buf.seek(0)
+    return send_file(buf,
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        as_attachment=True,
+        download_name=f"uslugi_alma-ata_{date.today()}.xlsx")
+
+
+@app.route("/export/excel/services/private")
+@login_required
+def export_excel_services_private():
+    conn = get_db(); cur = conn.cursor()
+    orders = _fetch_service_orders(cur, owner_type="Собственник")
+    cur.close(); conn.close()
+    wb  = _build_services_excel(orders, "Услуги — Собственники")
+    buf = io.BytesIO(); wb.save(buf); buf.seek(0)
+    return send_file(buf,
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        as_attachment=True,
+        download_name=f"uslugi_sobstvenniki_{date.today()}.xlsx")
 
 
 # ── Excel helpers ─────────────────────────────────────────

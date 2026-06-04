@@ -65,15 +65,15 @@
             </span>
           </div>
           {% if cottage.owner_name %}
-          <div class="info-row">
+          <div class="info-row-stack">
             <span class="label">👤 Собственник</span>
-            <span class="value" style="font-size:0.88rem">{{ cottage.owner_name }}</span>
+            <span class="value-full">{{ cottage.owner_name }}</span>
           </div>
           {% endif %}
           {% if cottage.contacts %}
-          <div class="info-row">
+          <div class="info-row-stack">
             <span class="label">📞 Контакты</span>
-            <span class="value" style="font-size:0.85rem;word-break:break-word;white-space:normal;text-align:right;max-width:60%">{{ cottage.contacts }}</span>
+            <span class="value-full" style="font-size:0.85rem">{{ cottage.contacts }}</span>
           </div>
           {% endif %}
         {% else %}

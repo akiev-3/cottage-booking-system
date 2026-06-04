@@ -57,7 +57,7 @@
         <tbody id="bookings-body">
           {% for b in bookings %}
           <tr id="row-{{ b.id }}" class="{% if b.check_out < today %}past{% endif %}">
-            <td class="col-id">{{ b.id }}</td>
+            <td class="col-id">{{ loop.index }}</td>
             <td><strong>{{ b.guest_name }}</strong></td>
             <td>{{ b.check_in|fmtdate }}</td>
             <td>{{ b.check_out|fmtdate }}</td>

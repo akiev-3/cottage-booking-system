@@ -609,9 +609,9 @@ def _build_services_excel(orders, sheet_title):
         ws.column_dimensions[cell.column_letter].width = w
     ws.row_dimensions[1].height = 22
 
-    for ri, o in enumerate(orders, 2):
+    for seq, (ri, o) in enumerate(zip(range(2, 2 + len(orders)), orders), 1):
         values = [
-            o["id"],
+            seq,
             fmt_date(o["service_date"]) if o.get("service_date") else "",
             fmt_date(o["end_date"])     if o.get("end_date")     else "—",
             o.get("category",""),
@@ -746,10 +746,10 @@ def _thin_border():
     s = Side(style="thin", color="CCCCCC")
     return Border(left=s, right=s, top=s, bottom=s)
 
-def _booking_row(b):
+def _booking_row(b, seq_num):
     discount = b.get("discount") or 0
     return [
-        b["id"], b["cottage_name"], b["guest_name"],
+        seq_num, b["cottage_name"], b["guest_name"],
         fmt_date(b["check_in"]), fmt_date(b["check_out"]),
         b["nights"], b["guests"],
         f"-${discount}" if discount else "—",
@@ -772,10 +772,10 @@ def _write_rows(ws, bookings, start=2):
     today  = date.today().isoformat()
     border = _thin_border()
     last   = start - 1
-    for row_i, b in enumerate(bookings, start):
+    for seq, (row_i, b) in enumerate(zip(range(start, start + len(bookings)), bookings), 1):
         is_past  = str(b["check_out"]) < today
         row_fill = PatternFill("solid", fgColor="F4F6F9" if is_past else "FFFFFF")
-        for col, val in enumerate(_booking_row(b), 1):
+        for col, val in enumerate(_booking_row(b, seq), 1):
             cell = ws.cell(row=row_i, column=col, value=val)
             cell.fill=row_fill; cell.border=border
             if col in CENTER_COLS:
@@ -896,9 +896,9 @@ def _to_csv(bookings):
     buf=io.StringIO()
     writer=csv.writer(buf, delimiter=";")
     writer.writerow(CSV_HEADERS)
-    for b in bookings:
+    for seq, b in enumerate(bookings, 1):
         discount=b.get("discount") or 0
-        writer.writerow([b["id"],b["cottage_name"],b["guest_name"],
+        writer.writerow([seq,b["cottage_name"],b["guest_name"],
             fmt_date(b["check_in"]),fmt_date(b["check_out"]),
             b["nights"],b["guests"],
             f"-${discount}" if discount else "—",

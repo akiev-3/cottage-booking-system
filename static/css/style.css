@@ -334,17 +334,18 @@ main { padding: 32px; max-width: 1300px; margin: 0 auto; }
 .bookings-table tr:hover td { background: #f8fafd; }
 .bookings-table tr.past td { color: var(--muted); }
 
-/* Фиксированные ширины колонок */
+/* Фиксированные ширины колонок — для крупных экранов */
 .bookings-table th:nth-child(1)  { width: 48px;  } /* # */
-.bookings-table th:nth-child(2)  { width: 160px; } /* Гость */
+.bookings-table th:nth-child(2)  { width: 18%;   } /* Гость */
 .bookings-table th:nth-child(3)  { width: 100px; } /* Заезд */
 .bookings-table th:nth-child(4)  { width: 100px; } /* Выезд */
 .bookings-table th:nth-child(5)  { width: 64px;  } /* Ночей */
 .bookings-table th:nth-child(6)  { width: 64px;  } /* Гостей */
-.bookings-table th:nth-child(7)  { width: 100px; } /* Сумма $ */
-.bookings-table th:nth-child(8)  { width: 64px;  } /* Скидка */
-.bookings-table th:nth-child(9)  { width: 80px;  } /* Курс */
+.bookings-table th:nth-child(7)  { width: 110px; } /* Сумма $ */
+.bookings-table th:nth-child(8)  { width: 80px;  } /* Скидка */
+.bookings-table th:nth-child(9)  { width: 70px;  } /* Курс */
 .bookings-table th:nth-child(10) { width: 120px; } /* Сумма сом */
+.bookings-table th:nth-child(11) { width: auto;  } /* Заметки — берёт остаток */
 .bookings-table th:last-child    { width: 48px;  } /* Удалить */
 
 .notes-cell { font-size: 0.82rem; color: var(--muted); overflow: hidden; text-overflow: ellipsis; }
@@ -477,6 +478,28 @@ textarea { resize: vertical; }
 .toast.show { transform: translateX(-50%) translateY(0); }
 .toast.error { background: var(--danger); }
 .toast.success { background: var(--success-dark); }
+
+/* ══════════════════════════════════════════
+   АДАПТИВНЫЕ КОЛОНКИ ТАБЛИЦЫ
+══════════════════════════════════════════ */
+
+/* xl — скрывается ниже 1100px */
+@media (max-width: 1100px) {
+  .col-xl { display: none; }
+}
+
+/* lg — скрывается ниже 860px */
+@media (max-width: 860px) {
+  .col-lg { display: none; }
+  .bookings-table th:nth-child(8),
+  .bookings-table th:nth-child(9) { display: none; }
+}
+
+/* md — скрывается ниже 640px */
+@media (max-width: 640px) {
+  .col-md { display: none; }
+  .col-id { display: none; }
+}
 
 /* ══════════════════════════════════════════
    МОБИЛЬНАЯ АДАПТАЦИЯ  (≤ 640px)

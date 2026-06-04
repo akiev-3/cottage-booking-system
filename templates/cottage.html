@@ -40,37 +40,37 @@
       <table class="bookings-table">
         <thead>
           <tr>
-            <th>#</th>
+            <th class="col-id">№</th>
             <th>Гость</th>
             <th>Заезд</th>
             <th>Выезд</th>
-            <th>Ночей</th>
-            <th>Гостей</th>
+            <th class="col-md">Ночей</th>
+            <th class="col-md">Гостей</th>
             <th>Сумма ($)</th>
-            <th>Скидка</th>
-            <th>Курс</th>
-            <th>Сумма (сом)</th>
-            <th>Заметки</th>
+            <th class="col-lg">Скидка</th>
+            <th class="col-lg">Курс</th>
+            <th class="col-md">Сумма (сом)</th>
+            <th class="col-xl">Заметки</th>
             <th></th>
           </tr>
         </thead>
         <tbody id="bookings-body">
           {% for b in bookings %}
           <tr id="row-{{ b.id }}" class="{% if b.check_out < today %}past{% endif %}">
-            <td>{{ b.id }}</td>
+            <td class="col-id">{{ b.id }}</td>
             <td><strong>{{ b.guest_name }}</strong></td>
             <td>{{ b.check_in|fmtdate }}</td>
             <td>{{ b.check_out|fmtdate }}</td>
-            <td>{{ b.nights }}</td>
-            <td>{{ b.guests }}</td>
+            <td class="col-md">{{ b.nights }}</td>
+            <td class="col-md">{{ b.guests }}</td>
             <td>
               ${{ "%.0f"|format(b.total) }}
               {% if b.discount %}<span class="was-price">${{ "%.0f"|format(b.total_before_discount) }}</span>{% endif %}
             </td>
-            <td>{% if b.discount %}<span class="discount-badge">-${{ b.discount }}</span>{% else %}—{% endif %}</td>
-            <td>{{ b.rate }}</td>
-            <td>{{ "%.0f"|format(b.total_som) }} сом</td>
-            <td class="notes-cell">{{ b.notes }}</td>
+            <td class="col-lg">{% if b.discount %}<span class="discount-badge">-${{ b.discount }}</span>{% else %}—{% endif %}</td>
+            <td class="col-lg">{{ b.rate }}</td>
+            <td class="col-md">{{ "%.0f"|format(b.total_som) }} сом</td>
+            <td class="col-xl notes-cell">{{ b.notes }}</td>
             <td><button class="btn btn-sm btn-danger" onclick="deleteBooking({{ b.id }})">🗑️</button></td>
           </tr>
           {% endfor %}

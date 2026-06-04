@@ -1,21 +1,21 @@
-from flask import Flask, render_template, request, jsonify, redirect, url_for, send_file, session, flash
+from flask import Flask, render_template, request, jsonify, redirect, url_for, send_file, session
 from functools import wraps
 from werkzeug.security import generate_password_hash, check_password_hash
-import json
 import os
 import io
 import csv
 from datetime import datetime, date
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+import psycopg2
+import psycopg2.extras
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "cottage-secret-2024-change-me")
 
 # ── Учётные данные ────────────────────────────────────────
-# Чтобы сменить пароль: поменяй LOGIN и PASSWORD ниже и перезапусти
 LOGIN    = "admin"
-PASSWORD = generate_password_hash("Eldar7979d")   # ← измени "1234" на свой пароль
+PASSWORD = generate_password_hash(os.environ.get("APP_PASSWORD", "1234"))
 
 
 def login_required(f):
@@ -26,48 +26,77 @@ def login_required(f):
         return f(*args, **kwargs)
     return decorated
 
-# Абсолютный путь — данные всегда найдутся независимо от того,
-# из какой папки запускается приложение
-BASE_DIR  = os.path.dirname(os.path.abspath(__file__))
-DATA_DIR  = os.path.join(BASE_DIR, "data")
-DATA_FILE = os.path.join(DATA_DIR, "data.json")
 
-os.makedirs(DATA_DIR, exist_ok=True)
+# ── База данных ───────────────────────────────────────────
 
-
-def load_data():
-    if not os.path.exists(DATA_FILE):
-        return {"cottages": [], "bookings": [], "settings": {"rate": 500}}
-    data = json.load(open(DATA_FILE, encoding="utf-8"))
-    data.setdefault("settings", {"rate": 500})
-    # Совместимость со старыми бронями
-    for b in data.get("bookings", []):
-        if "rate" not in b:
-            b["rate"] = data["settings"]["rate"]
-        if "total_som" not in b:
-            b["total_som"] = round(b["total"] * b["rate"])
-        if "discount" not in b:
-            b["discount"] = 0  # сумма скидки в $
-        if "total_before_discount" not in b:
-            b["total_before_discount"] = b["total"]
-    return data
+def get_db():
+    conn = psycopg2.connect(
+        os.environ.get("DATABASE_URL", ""),
+        cursor_factory=psycopg2.extras.RealDictCursor
+    )
+    return conn
 
 
-def save_data(data):
-    with open(DATA_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+def init_db():
+    conn = get_db()
+    cur  = conn.cursor()
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS cottages (
+            id            SERIAL PRIMARY KEY,
+            name          VARCHAR(255) NOT NULL,
+            capacity      INT          NOT NULL,
+            price_per_day FLOAT        NOT NULL,
+            description   TEXT         DEFAULT ''
+        )
+    """)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS bookings (
+            id                   SERIAL PRIMARY KEY,
+            cottage_id           INT REFERENCES cottages(id) ON DELETE CASCADE,
+            cottage_name         VARCHAR(255),
+            guest_name           VARCHAR(255),
+            guests               INT,
+            check_in             DATE,
+            check_out            DATE,
+            nights               INT,
+            discount             FLOAT   DEFAULT 0,
+            total_before_discount FLOAT,
+            total                FLOAT,
+            rate                 FLOAT,
+            total_som            FLOAT,
+            notes                TEXT    DEFAULT ''
+        )
+    """)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS settings (
+            key   VARCHAR(50) PRIMARY KEY,
+            value VARCHAR(255)
+        )
+    """)
+    cur.execute("""
+        INSERT INTO settings (key, value)
+        VALUES ('rate', '500')
+        ON CONFLICT (key) DO NOTHING
+    """)
+    conn.commit()
+    cur.close()
+    conn.close()
 
 
-def fmt_date(iso: str) -> str:
-    """YYYY-MM-DD → ДД/ММ/ГГГГ"""
+def fmt_date(iso) -> str:
+    """YYYY-MM-DD или date → ДД/ММ/ГГГГ"""
     try:
-        return datetime.strptime(iso, "%Y-%m-%d").strftime("%d/%m/%Y")
+        if isinstance(iso, date):
+            return iso.strftime("%d/%m/%Y")
+        return datetime.strptime(str(iso), "%Y-%m-%d").strftime("%d/%m/%Y")
     except Exception:
-        return iso
+        return str(iso)
 
 
-def next_id(items):
-    return max((i["id"] for i in items), default=0) + 1
+def get_rate(cur) -> float:
+    cur.execute("SELECT value FROM settings WHERE key = 'rate'")
+    row = cur.fetchone()
+    return float(row["value"]) if row else 500.0
 
 
 app.jinja_env.filters["fmtdate"] = fmt_date
@@ -100,8 +129,13 @@ def logout():
 @app.route("/")
 @login_required
 def index():
-    data = load_data()
-    return render_template("index.html", cottages=data["cottages"], rate=data["settings"]["rate"])
+    conn = get_db()
+    cur  = conn.cursor()
+    cur.execute("SELECT * FROM cottages ORDER BY id")
+    cottages = [dict(r) for r in cur.fetchall()]
+    rate = get_rate(cur)
+    cur.close(); conn.close()
+    return render_template("index.html", cottages=cottages, rate=rate)
 
 
 # ── Settings ──────────────────────────────────────────────
@@ -109,19 +143,23 @@ def index():
 @app.route("/settings", methods=["GET"])
 @login_required
 def get_settings():
-    data = load_data()
-    return jsonify(data["settings"])
+    conn = get_db(); cur = conn.cursor()
+    rate = get_rate(cur)
+    cur.close(); conn.close()
+    return jsonify({"rate": rate})
 
 
 @app.route("/settings", methods=["POST"])
 @login_required
 def update_settings():
-    data = load_data()
     body = request.json
+    conn = get_db(); cur = conn.cursor()
     if "rate" in body:
-        data["settings"]["rate"] = float(body["rate"])
-    save_data(data)
-    return jsonify(data["settings"])
+        cur.execute("UPDATE settings SET value = %s WHERE key = 'rate'", (str(body["rate"]),))
+        conn.commit()
+    rate = get_rate(cur)
+    cur.close(); conn.close()
+    return jsonify({"rate": rate})
 
 
 # ── Cottages ──────────────────────────────────────────────
@@ -129,43 +167,41 @@ def update_settings():
 @app.route("/cottages", methods=["POST"])
 @login_required
 def create_cottage():
-    data = load_data()
     body = request.json
-    cottage = {
-        "id": next_id(data["cottages"]),
-        "name": body["name"],
-        "capacity": int(body["capacity"]),
-        "price_per_day": float(body["price_per_day"]),
-        "description": body.get("description", ""),
-    }
-    data["cottages"].append(cottage)
-    save_data(data)
+    conn = get_db(); cur = conn.cursor()
+    cur.execute("""
+        INSERT INTO cottages (name, capacity, price_per_day, description)
+        VALUES (%s, %s, %s, %s) RETURNING *
+    """, (body["name"], int(body["capacity"]),
+          float(body["price_per_day"]), body.get("description", "")))
+    cottage = dict(cur.fetchone())
+    conn.commit(); cur.close(); conn.close()
     return jsonify(cottage), 201
 
 
 @app.route("/cottages/<int:cottage_id>", methods=["PUT"])
 @login_required
 def update_cottage(cottage_id):
-    data = load_data()
     body = request.json
-    for c in data["cottages"]:
-        if c["id"] == cottage_id:
-            c["name"]          = body.get("name", c["name"])
-            c["capacity"]      = int(body.get("capacity", c["capacity"]))
-            c["price_per_day"] = float(body.get("price_per_day", c["price_per_day"]))
-            c["description"]   = body.get("description", c.get("description", ""))
-            save_data(data)
-            return jsonify(c)
-    return jsonify({"error": "Не найдено"}), 404
+    conn = get_db(); cur = conn.cursor()
+    cur.execute("""
+        UPDATE cottages SET name=%s, capacity=%s, price_per_day=%s, description=%s
+        WHERE id=%s RETURNING *
+    """, (body["name"], int(body["capacity"]),
+          float(body["price_per_day"]), body.get("description", ""), cottage_id))
+    row = cur.fetchone()
+    conn.commit(); cur.close(); conn.close()
+    if not row:
+        return jsonify({"error": "Не найдено"}), 404
+    return jsonify(dict(row))
 
 
 @app.route("/cottages/<int:cottage_id>", methods=["DELETE"])
 @login_required
 def delete_cottage(cottage_id):
-    data = load_data()
-    data["cottages"] = [c for c in data["cottages"] if c["id"] != cottage_id]
-    data["bookings"] = [b for b in data["bookings"] if b["cottage_id"] != cottage_id]
-    save_data(data)
+    conn = get_db(); cur = conn.cursor()
+    cur.execute("DELETE FROM cottages WHERE id = %s", (cottage_id,))
+    conn.commit(); cur.close(); conn.close()
     return jsonify({"ok": True})
 
 
@@ -174,187 +210,166 @@ def delete_cottage(cottage_id):
 @app.route("/bookings", methods=["GET"])
 @login_required
 def get_bookings():
-    data = load_data()
     cottage_id = request.args.get("cottage_id", type=int)
-    bookings = data["bookings"]
+    conn = get_db(); cur = conn.cursor()
     if cottage_id:
-        bookings = [b for b in bookings if b["cottage_id"] == cottage_id]
-    return jsonify(bookings)
+        cur.execute("SELECT * FROM bookings WHERE cottage_id=%s ORDER BY check_in", (cottage_id,))
+    else:
+        cur.execute("SELECT * FROM bookings ORDER BY check_in")
+    rows = [dict(r) for r in cur.fetchall()]
+    cur.close(); conn.close()
+    return jsonify(rows)
 
 
 @app.route("/bookings", methods=["POST"])
 @login_required
 def create_booking():
-    data   = load_data()
-    body   = request.json
+    body       = request.json
     cottage_id = int(body["cottage_id"])
     check_in   = body["check_in"]
     check_out  = body["check_out"]
     guests     = int(body["guests"])
 
-    cottage = next((c for c in data["cottages"] if c["id"] == cottage_id), None)
+    conn = get_db(); cur = conn.cursor()
+
+    cur.execute("SELECT * FROM cottages WHERE id = %s", (cottage_id,))
+    cottage = cur.fetchone()
     if not cottage:
+        cur.close(); conn.close()
         return jsonify({"error": "Коттедж не найден"}), 404
 
     if guests > cottage["capacity"]:
+        cur.close(); conn.close()
         return jsonify({"error": f"Максимум гостей: {cottage['capacity']}"}), 400
 
     ci = datetime.strptime(check_in,  "%Y-%m-%d").date()
     co = datetime.strptime(check_out, "%Y-%m-%d").date()
     if co <= ci:
+        cur.close(); conn.close()
         return jsonify({"error": "Дата выезда должна быть позже даты заезда"}), 400
 
-    for b in data["bookings"]:
-        if b["cottage_id"] != cottage_id:
-            continue
-        bi = datetime.strptime(b["check_in"],  "%Y-%m-%d").date()
-        bo = datetime.strptime(b["check_out"], "%Y-%m-%d").date()
-        if ci < bo and co > bi:
-            return jsonify({"error": f"Даты пересекаются с бронью #{b['id']} ({b['check_in']} – {b['check_out']})"}), 409
+    # Проверка пересечений
+    cur.execute("""
+        SELECT id, check_in, check_out FROM bookings
+        WHERE cottage_id = %s AND check_in < %s AND check_out > %s
+    """, (cottage_id, co, ci))
+    conflict = cur.fetchone()
+    if conflict:
+        cur.close(); conn.close()
+        return jsonify({"error": f"Даты пересекаются с бронью #{conflict['id']} ({fmt_date(conflict['check_in'])} – {fmt_date(conflict['check_out'])})"}), 409
 
-    nights       = (co - ci).days
-    total_before = nights * cottage["price_per_day"]
-    discount     = max(0, float(body.get("discount") or 0))   # фиксированная сумма в $
-    total        = round(max(0, total_before - discount), 2)
+    nights        = (co - ci).days
+    total_before  = nights * cottage["price_per_day"]
+    discount      = max(0, float(body.get("discount") or 0))
+    total         = round(max(0, total_before - discount), 2)
+    rate          = float(body.get("rate") or get_rate(cur))
+    total_som     = round(total * rate)
 
-    # Берём курс из формы; если не передан — из настроек
-    rate = float(body.get("rate") or data["settings"]["rate"])
+    cur.execute("""
+        INSERT INTO bookings
+            (cottage_id, cottage_name, guest_name, guests,
+             check_in, check_out, nights,
+             discount, total_before_discount, total, rate, total_som, notes)
+        VALUES (%s,%s,%s,%s, %s,%s,%s, %s,%s,%s,%s,%s,%s)
+        RETURNING *
+    """, (cottage_id, cottage["name"], body.get("guest_name", ""), guests,
+          ci, co, nights,
+          discount, total_before, total, rate, total_som, body.get("notes", "")))
+    booking = dict(cur.fetchone())
+    conn.commit(); cur.close(); conn.close()
 
-    booking = {
-        "id":                   next_id(data["bookings"]),
-        "cottage_id":           cottage_id,
-        "cottage_name":         cottage["name"],
-        "guest_name":           body.get("guest_name", ""),
-        "guests":               guests,
-        "check_in":             check_in,
-        "check_out":            check_out,
-        "nights":               nights,
-        "discount":             discount,
-        "total_before_discount": total_before,
-        "total":                total,        # в долларах после скидки
-        "rate":                 rate,
-        "total_som":            round(total * rate),
-        "notes":                body.get("notes", ""),
-    }
-    data["bookings"].append(booking)
-    save_data(data)
+    # Сериализуем даты
+    booking["check_in"]  = str(booking["check_in"])
+    booking["check_out"] = str(booking["check_out"])
     return jsonify(booking), 201
 
 
 @app.route("/bookings/<int:booking_id>", methods=["DELETE"])
 @login_required
 def delete_booking(booking_id):
-    data = load_data()
-    data["bookings"] = [b for b in data["bookings"] if b["id"] != booking_id]
-    save_data(data)
+    conn = get_db(); cur = conn.cursor()
+    cur.execute("DELETE FROM bookings WHERE id = %s", (booking_id,))
+    conn.commit(); cur.close(); conn.close()
     return jsonify({"ok": True})
 
 
 @app.route("/cottages/<int:cottage_id>/bookings")
 @login_required
 def cottage_bookings_page(cottage_id):
-    data    = load_data()
-    cottage = next((c for c in data["cottages"] if c["id"] == cottage_id), None)
+    conn = get_db(); cur = conn.cursor()
+    cur.execute("SELECT * FROM cottages WHERE id = %s", (cottage_id,))
+    cottage = cur.fetchone()
     if not cottage:
+        cur.close(); conn.close()
         return redirect(url_for("index"))
-    bookings = sorted(
-        [b for b in data["bookings"] if b["cottage_id"] == cottage_id],
-        key=lambda b: b["check_in"]
-    )
+    cur.execute("SELECT * FROM bookings WHERE cottage_id = %s ORDER BY check_in", (cottage_id,))
+    bookings = [dict(r) for r in cur.fetchall()]
+    rate  = get_rate(cur)
     today = date.today().isoformat()
-    rate  = data["settings"]["rate"]
-    return render_template("cottage.html", cottage=cottage, bookings=bookings, today=today, rate=rate)
+    cur.close(); conn.close()
+    return render_template("cottage.html", cottage=dict(cottage),
+                           bookings=bookings, today=today, rate=rate)
 
 
-# ── Excel export ──────────────────────────────────────────
+# ── Excel helpers ─────────────────────────────────────────
 
-def _header_fill(color):
-    return PatternFill("solid", fgColor=color)
+BOOK_HEADERS = ["№","Коттедж","Гость","Заезд","Выезд",
+                "Ночей","Гостей","Скидка ($)","Сумма ($)","Сумма (сом)","Курс","Заметки"]
+BOOK_WIDTHS  = [6,22,22,13,13,8,8,11,13,14,8,30]
+CENTER_COLS  = {1,6,7,8,9,10,11}
 
+def _header_fill(color): return PatternFill("solid", fgColor=color)
 def _thin_border():
     s = Side(style="thin", color="CCCCCC")
     return Border(left=s, right=s, top=s, bottom=s)
 
-# Колонки и ширины — единое место, используется везде
-BOOK_HEADERS = [
-    "№", "Коттедж", "Гость", "Заезд", "Выезд",
-    "Ночей", "Гостей", "Скидка ($)","Сумма ($)", "Сумма (сом)", "Курс", "Заметки"
-]
-BOOK_WIDTHS = [6, 22, 22, 13, 13, 8, 8, 10, 13, 14, 8, 30]
-# Индексы (1-based) для выравнивания по центру
-CENTER_COLS = {1, 6, 7, 8, 9, 10, 11}
-
-
-def _booking_row(b, current_rate):
-    """Вернуть список значений строки брони."""
-    b_rate    = b.get("rate", current_rate)          # курс на момент бронирования
-    total_usd = b["total"]                            # всегда в $
-    total_som = b.get("total_som", total_usd * b_rate)
-    discount = b.get("discount", 0)
+def _booking_row(b):
+    discount = b.get("discount") or 0
     return [
-        b["id"],
-        b["cottage_name"],
-        b["guest_name"],
-        fmt_date(b["check_in"]),
-        fmt_date(b["check_out"]),
-        b["nights"],
-        b["guests"],
+        b["id"], b["cottage_name"], b["guest_name"],
+        fmt_date(b["check_in"]), fmt_date(b["check_out"]),
+        b["nights"], b["guests"],
         f"-${discount}" if discount else "—",
-        total_usd,
-        round(total_som),
-        b_rate,
-        b.get("notes", ""),
+        b["total"], round(b["total_som"] or 0), b["rate"],
+        b.get("notes",""),
     ]
 
-
-def _write_headers(ws, headers, widths, row=1):
+def _write_headers(ws, row=1):
     hf = Font(bold=True, color="FFFFFF")
     hfill = _header_fill("4F6EF7")
-    center = Alignment(horizontal="center", vertical="center")
     border = _thin_border()
-    for col, (h, w) in enumerate(zip(headers, widths), 1):
+    center = Alignment(horizontal="center", vertical="center")
+    for col,(h,w) in enumerate(zip(BOOK_HEADERS, BOOK_WIDTHS), 1):
         cell = ws.cell(row=row, column=col, value=h)
-        cell.font      = hf
-        cell.fill      = hfill
-        cell.alignment = center
-        cell.border    = border
+        cell.font=hf; cell.fill=hfill; cell.alignment=center; cell.border=border
         ws.column_dimensions[cell.column_letter].width = w
     ws.row_dimensions[row].height = 22
 
-
-def _write_booking_rows(ws, bookings, current_rate, start_row=2):
+def _write_rows(ws, bookings, start=2):
     today  = date.today().isoformat()
     border = _thin_border()
-    for row_i, b in enumerate(bookings, start_row):
-        is_past  = b["check_out"] < today
-        row_fill = PatternFill("solid", fgColor="F4F6F9") if is_past else PatternFill("solid", fgColor="FFFFFF")
-        for col, val in enumerate(_booking_row(b, current_rate), 1):
+    last   = start - 1
+    for row_i, b in enumerate(bookings, start):
+        is_past  = str(b["check_out"]) < today
+        row_fill = PatternFill("solid", fgColor="F4F6F9" if is_past else "FFFFFF")
+        for col, val in enumerate(_booking_row(b), 1):
             cell = ws.cell(row=row_i, column=col, value=val)
-            cell.fill   = row_fill
-            cell.border = border
+            cell.fill=row_fill; cell.border=border
             if col in CENTER_COLS:
                 cell.alignment = Alignment(horizontal="center")
-    return row_i if bookings else start_row - 1
+        last = row_i
+    return last
 
-
-def _write_totals(ws, bookings, current_rate, total_row):
-    """Строка ИТОГО: суммы по $ и сом."""
+def _write_totals(ws, bookings, total_row):
     border = _thin_border()
     bold   = Font(bold=True)
     fill   = PatternFill("solid", fgColor="EEF2FF")
-    labels = {1: "ИТОГО", 6: sum(b["nights"] for b in bookings)}
-
-    total_usd = sum(b["total"] for b in bookings)
-    total_som = sum(b.get("total_som", b["total"] * b.get("rate", current_rate)) for b in bookings)
-
-    labels[8]  = round(total_usd)
-    labels[9]  = round(total_som)
-
-    for col in range(1, len(BOOK_HEADERS) + 1):
-        cell = ws.cell(row=total_row, column=col, value=labels.get(col, None))
-        cell.font   = bold
-        cell.fill   = fill
-        cell.border = border
+    vals   = {1:"ИТОГО", 6:sum(b["nights"] for b in bookings),
+              9:round(sum(b["total"] for b in bookings)),
+              10:round(sum(b["total_som"] or 0 for b in bookings))}
+    for col in range(1, len(BOOK_HEADERS)+1):
+        cell = ws.cell(row=total_row, column=col, value=vals.get(col))
+        cell.font=bold; cell.fill=fill; cell.border=border
         if col in CENTER_COLS:
             cell.alignment = Alignment(horizontal="center")
 
@@ -362,196 +377,152 @@ def _write_totals(ws, bookings, current_rate, total_row):
 @app.route("/export/excel")
 @login_required
 def export_excel():
-    """Все брони всех коттеджей."""
-    data         = load_data()
-    current_rate = data["settings"]["rate"]
-    wb           = Workbook()
+    conn = get_db(); cur = conn.cursor()
+    cur.execute("SELECT * FROM cottages ORDER BY id")
+    cottages = [dict(r) for r in cur.fetchall()]
+    cur.execute("SELECT * FROM bookings ORDER BY check_in")
+    all_bookings = [dict(r) for r in cur.fetchall()]
+    cur.close(); conn.close()
 
-    # ── Лист 1: Все брони ─────────────────────────────────
-    ws_all = wb.active
-    ws_all.title = "Все брони"
-    _write_headers(ws_all, BOOK_HEADERS, BOOK_WIDTHS, row=1)
+    wb = Workbook()
 
-    bookings_sorted = sorted(data["bookings"], key=lambda b: b["check_in"])
-    last = _write_booking_rows(ws_all, bookings_sorted, current_rate, start_row=2)
-    if bookings_sorted:
-        _write_totals(ws_all, bookings_sorted, current_rate, last + 1)
+    # Лист: Все брони
+    ws = wb.active; ws.title = "Все брони"
+    _write_headers(ws, row=1)
+    last = _write_rows(ws, all_bookings, start=2)
+    if all_bookings: _write_totals(ws, all_bookings, last+1)
+    ws.freeze_panes = "A2"
+    ws.auto_filter.ref = f"A1:L{last}"
 
-    ws_all.freeze_panes = "A2"
-    ws_all.auto_filter.ref = f"A1:K{last}"
+    # Лист: Сводка
+    ws2 = wb.create_sheet("Сводка")
+    sh  = ["Коттедж","Вместимость","$/сутки","Броней","Ночей","Выручка ($)","Выручка (сом)"]
+    sw  = [22,13,12,9,10,14,16]
+    hf  = Font(bold=True,color="FFFFFF"); hfill=_header_fill("4F6EF7")
+    border=_thin_border(); center=Alignment(horizontal="center",vertical="center")
+    for col,(h,w) in enumerate(zip(sh,sw),1):
+        cell=ws2.cell(row=1,column=col,value=h)
+        cell.font=hf;cell.fill=hfill;cell.alignment=center;cell.border=border
+        ws2.column_dimensions[cell.column_letter].width=w
+    for ri,c in enumerate(cottages,2):
+        cb=[b for b in all_bookings if b["cottage_id"]==c["id"]]
+        vals=[c["name"],c["capacity"],c["price_per_day"],len(cb),
+              sum(b["nights"] for b in cb),
+              round(sum(b["total"] for b in cb)),
+              round(sum(b["total_som"] or 0 for b in cb))]
+        for col,val in enumerate(vals,1):
+            cell=ws2.cell(row=ri,column=col,value=val)
+            cell.border=border
+            if col>1: cell.alignment=Alignment(horizontal="center")
 
-    # ── Лист 2: Сводка по коттеджам ───────────────────────
-    ws_sum = wb.create_sheet("Сводка по коттеджам")
-    sum_headers = ["Коттедж", "Вместимость", "Цена/сутки ($)", "Броней", "Ночей всего", "Выручка ($)", "Выручка (сом)"]
-    sum_widths  = [24, 14, 16, 10, 14, 16, 18]
-    _write_headers(ws_sum, sum_headers, sum_widths, row=1)
+    # Листы по коттеджам
+    for c in cottages:
+        ws3 = wb.create_sheet(c["name"][:28])
+        ws3.merge_cells("A1:L1")
+        tc=ws3["A1"]
+        tc.value=f"{c['name']}  |  до {c['capacity']} чел.  |  ${int(c['price_per_day'])}/сутки"
+        tc.font=Font(bold=True,size=12,color="2C3E50")
+        tc.fill=PatternFill("solid",fgColor="EEF2FF")
+        tc.alignment=Alignment(horizontal="left",vertical="center")
+        ws3.row_dimensions[1].height=26
+        _write_headers(ws3, row=2)
+        cb=[b for b in all_bookings if b["cottage_id"]==c["id"]]
+        last=_write_rows(ws3, cb, start=3)
+        if cb: _write_totals(ws3, cb, last+1)
+        ws3.freeze_panes="A3"
 
-    border = _thin_border()
-    for row_i, c in enumerate(data["cottages"], 2):
-        cb = [b for b in data["bookings"] if b["cottage_id"] == c["id"]]
-        rev_usd = sum(b["total"] for b in cb)
-        rev_som = sum(b.get("total_som", b["total"] * b.get("rate", current_rate)) for b in cb)
-        values  = [c["name"], c["capacity"], c["price_per_day"], len(cb),
-                   sum(b["nights"] for b in cb), round(rev_usd), round(rev_som)]
-        for col, val in enumerate(values, 1):
-            cell = ws_sum.cell(row=row_i, column=col, value=val)
-            cell.border = border
-            if col > 1:
-                cell.alignment = Alignment(horizontal="center")
-
-    # ── Листы для каждого коттеджа ────────────────────────
-    for c in data["cottages"]:
-        ws = wb.create_sheet(c["name"][:28])
-
-        # Шапка
-        ws.merge_cells(f"A1:K1")
-        tc = ws["A1"]
-        tc.value     = f"{c['name']}  |  до {c['capacity']} чел.  |  ${int(c['price_per_day'])}/сутки  |  Курс: {current_rate} сом"
-        tc.font      = Font(bold=True, size=12, color="2C3E50")
-        tc.fill      = PatternFill("solid", fgColor="EEF2FF")
-        tc.alignment = Alignment(horizontal="left", vertical="center")
-        ws.row_dimensions[1].height = 26
-
-        _write_headers(ws, BOOK_HEADERS, BOOK_WIDTHS, row=2)
-
-        cb = sorted([b for b in data["bookings"] if b["cottage_id"] == c["id"]],
-                    key=lambda b: b["check_in"])
-        last = _write_booking_rows(ws, cb, current_rate, start_row=3)
-        if cb:
-            _write_totals(ws, cb, current_rate, last + 1)
-
-        ws.freeze_panes = "A3"
-
-    buf = io.BytesIO()
-    wb.save(buf)
-    buf.seek(0)
+    buf=io.BytesIO(); wb.save(buf); buf.seek(0)
     return send_file(buf,
         mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        as_attachment=True,
-        download_name=f"broni_{date.today().isoformat()}.xlsx")
+        as_attachment=True, download_name=f"broni_{date.today()}.xlsx")
 
 
 @app.route("/export/excel/<int:cottage_id>")
 @login_required
 def export_excel_cottage(cottage_id):
-    """Брони одного коттеджа."""
-    data         = load_data()
-    current_rate = data["settings"]["rate"]
-    cottage      = next((c for c in data["cottages"] if c["id"] == cottage_id), None)
-    if not cottage:
-        return jsonify({"error": "Не найдено"}), 404
+    conn=get_db(); cur=conn.cursor()
+    cur.execute("SELECT * FROM cottages WHERE id=%s",(cottage_id,))
+    cottage=cur.fetchone()
+    if not cottage: cur.close();conn.close(); return jsonify({"error":"Не найдено"}),404
+    cur.execute("SELECT * FROM bookings WHERE cottage_id=%s ORDER BY check_in",(cottage_id,))
+    bookings=[dict(r) for r in cur.fetchall()]
+    cur.close(); conn.close()
 
-    wb = Workbook()
-    ws = wb.active
-    ws.title = cottage["name"][:31]
+    wb=Workbook(); ws=wb.active; ws.title=cottage["name"][:31]
+    ws.merge_cells("A1:L1"); tc=ws["A1"]
+    tc.value=f"{cottage['name']}  |  до {cottage['capacity']} чел.  |  ${int(cottage['price_per_day'])}/сутки"
+    tc.font=Font(bold=True,size=12); tc.fill=PatternFill("solid",fgColor="EEF2FF")
+    tc.alignment=Alignment(horizontal="left",vertical="center"); ws.row_dimensions[1].height=26
+    _write_headers(ws, row=2)
+    last=_write_rows(ws, bookings, start=3)
+    if bookings: _write_totals(ws, bookings, last+1)
+    ws.freeze_panes="A3"
 
-    ws.merge_cells("A1:K1")
-    tc = ws["A1"]
-    tc.value     = f"{cottage['name']}  |  до {cottage['capacity']} чел.  |  ${int(cottage['price_per_day'])}/сутки  |  Курс: {current_rate} сом"
-    tc.font      = Font(bold=True, size=12)
-    tc.fill      = PatternFill("solid", fgColor="EEF2FF")
-    tc.alignment = Alignment(horizontal="left", vertical="center")
-    ws.row_dimensions[1].height = 26
-
-    _write_headers(ws, BOOK_HEADERS, BOOK_WIDTHS, row=2)
-
-    cb = sorted([b for b in data["bookings"] if b["cottage_id"] == cottage_id],
-                key=lambda b: b["check_in"])
-    last = _write_booking_rows(ws, cb, current_rate, start_row=3)
-    if cb:
-        _write_totals(ws, cb, current_rate, last + 1)
-
-    ws.freeze_panes = "A3"
-
-    buf = io.BytesIO()
-    wb.save(buf)
-    buf.seek(0)
+    buf=io.BytesIO(); wb.save(buf); buf.seek(0)
     return send_file(buf,
         mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        as_attachment=True,
-        download_name=f"{cottage['name']}_{date.today().isoformat()}.xlsx")
+        as_attachment=True, download_name=f"{cottage['name']}_{date.today()}.xlsx")
 
 
 # ── CSV export ────────────────────────────────────────────
 
-CSV_HEADERS = ["№", "Коттедж", "Гость", "Заезд", "Выезд",
-               "Ночей", "Гостей", "Скидка ($)","Сумма ($)", "Курс", "Сумма (сом)", "Заметки"]
+CSV_HEADERS = ["№","Коттедж","Гость","Заезд","Выезд",
+               "Ночей","Гостей","Скидка ($)","Сумма ($)","Курс","Сумма (сом)","Заметки"]
 
-def _bookings_to_csv(bookings, current_rate) -> io.StringIO:
-    buf = io.StringIO()
-    buf.write("﻿")   # BOM — чтобы Excel открывал кириллицу корректно
-    writer = csv.writer(buf, delimiter=";")
+def _to_csv(bookings):
+    buf=io.StringIO()
+    writer=csv.writer(buf, delimiter=";")
     writer.writerow(CSV_HEADERS)
     for b in bookings:
-        b_rate    = b.get("rate", current_rate)
-        total_som = b.get("total_som", round(b["total"] * b_rate))
-        discount = b.get("discount", 0)
-        writer.writerow([
-            b["id"],
-            b["cottage_name"],
-            b["guest_name"],
-            fmt_date(b["check_in"]),
-            fmt_date(b["check_out"]),
-            b["nights"],
-            b["guests"],
+        discount=b.get("discount") or 0
+        writer.writerow([b["id"],b["cottage_name"],b["guest_name"],
+            fmt_date(b["check_in"]),fmt_date(b["check_out"]),
+            b["nights"],b["guests"],
             f"-${discount}" if discount else "—",
-            b["total"],
-            b_rate,
-            round(total_som),
-            b.get("notes", ""),
-        ])
-    # Итого
+            b["total"],b["rate"],round(b["total_som"] or 0),b.get("notes","")])
     writer.writerow([])
-    writer.writerow([
-        "ИТОГО", "", "", "", "",
-        sum(b["nights"] for b in bookings),
-        "",
-        round(sum(b["total"] for b in bookings)),
-        "",
-        round(sum(b.get("total_som", b["total"] * b.get("rate", current_rate)) for b in bookings)),
-        "",
-    ])
+    writer.writerow(["ИТОГО","","","","",
+        sum(b["nights"] for b in bookings),"","",
+        round(sum(b["total"] for b in bookings)),"",
+        round(sum(b["total_som"] or 0 for b in bookings)),""])
     buf.seek(0)
     return buf
-
 
 @app.route("/export/csv")
 @login_required
 def export_csv():
-    """Все брони — CSV."""
-    data         = load_data()
-    current_rate = data["settings"]["rate"]
-    bookings     = sorted(data["bookings"], key=lambda b: b["check_in"])
-    buf = _bookings_to_csv(bookings, current_rate)
-    return send_file(
-        io.BytesIO(buf.read().encode("utf-8-sig")),
-        mimetype="text/csv",
-        as_attachment=True,
-        download_name=f"broni_{date.today().isoformat()}.csv",
-    )
-
+    conn=get_db(); cur=conn.cursor()
+    cur.execute("SELECT * FROM bookings ORDER BY check_in")
+    bookings=[dict(r) for r in cur.fetchall()]
+    cur.close(); conn.close()
+    buf=_to_csv(bookings)
+    return send_file(io.BytesIO(buf.read().encode("utf-8-sig")),
+        mimetype="text/csv", as_attachment=True,
+        download_name=f"broni_{date.today()}.csv")
 
 @app.route("/export/csv/<int:cottage_id>")
 @login_required
 def export_csv_cottage(cottage_id):
-    """Брони одного коттеджа — CSV."""
-    data         = load_data()
-    current_rate = data["settings"]["rate"]
-    cottage      = next((c for c in data["cottages"] if c["id"] == cottage_id), None)
-    if not cottage:
-        return jsonify({"error": "Не найдено"}), 404
-    bookings = sorted(
-        [b for b in data["bookings"] if b["cottage_id"] == cottage_id],
-        key=lambda b: b["check_in"]
-    )
-    buf = _bookings_to_csv(bookings, current_rate)
-    return send_file(
-        io.BytesIO(buf.read().encode("utf-8-sig")),
-        mimetype="text/csv",
-        as_attachment=True,
-        download_name=f"{cottage['name']}_{date.today().isoformat()}.csv",
-    )
+    conn=get_db(); cur=conn.cursor()
+    cur.execute("SELECT * FROM cottages WHERE id=%s",(cottage_id,))
+    cottage=cur.fetchone()
+    if not cottage: cur.close();conn.close(); return jsonify({"error":"Не найдено"}),404
+    cur.execute("SELECT * FROM bookings WHERE cottage_id=%s ORDER BY check_in",(cottage_id,))
+    bookings=[dict(r) for r in cur.fetchall()]
+    cur.close(); conn.close()
+    buf=_to_csv(bookings)
+    return send_file(io.BytesIO(buf.read().encode("utf-8-sig")),
+        mimetype="text/csv", as_attachment=True,
+        download_name=f"{cottage['name']}_{date.today()}.csv")
 
+
+# ── Старт ─────────────────────────────────────────────────
+
+with app.app_context():
+    try:
+        init_db()
+    except Exception as e:
+        print(f"DB init skipped (no DATABASE_URL?): {e}")
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))

@@ -59,9 +59,10 @@
   <div class="header-right">
     <button class="btn btn-excel" onclick="toggleSvcExcel(event)">⬇️ Excel ▾</button>
     <div id="svc-excel-menu" class="dropdown-menu" style="display:none">
-      <a href="/export/excel/services"         class="dropdown-item">📊 Все услуги</a>
-      <a href="/export/excel/services/alma"    class="dropdown-item">🏢 Алма-Ата</a>
-      <a href="/export/excel/services/private" class="dropdown-item">👤 Собственники</a>
+      <a href="/export/excel/services"           class="dropdown-item">📊 Все услуги</a>
+      <a href="/export/excel/services/cottages" class="dropdown-item">🏠 Коттеджи</a>
+      <a href="/export/excel/services/private"  class="dropdown-item">👤 Собственники</a>
+      <a href="/export/excel/services/hotel"    class="dropdown-item">🏨 Номера отеля</a>
     </div>
     <button class="btn btn-success" onclick="openModal('modal-order')">+ Новый заказ</button>
     <a href="/logout" class="btn btn-outline">Выйти</a>
@@ -115,8 +116,9 @@
   <!-- ── Прайс-лист ── -->
   <div id="tab-catalog" class="tab-content">
     <div class="owner-tabs">
-      <button class="owner-tab active-alma" id="ptab-alma"    onclick="switchCatalogTab('alma')">🏢 Алма-Ата</button>
+      <button class="owner-tab active-alma" id="ptab-alma"    onclick="switchCatalogTab('alma')">🏠 Коттеджи</button>
       <button class="owner-tab"             id="ptab-private" onclick="switchCatalogTab('private')">👤 Собственники</button>
+      <button class="owner-tab"             id="ptab-hotel"   onclick="switchCatalogTab('hotel')">🏨 Номера отеля</button>
     </div>
 
     {# Макрос рендера одной секции каталога #}
@@ -150,10 +152,13 @@
     {% endmacro %}
 
     <div id="pcatalog-alma">
-      {{ render_catalog(catalog_alma, 'Алма-Ата') }}
+      {{ render_catalog(catalog_alma, 'Коттеджи') }}
     </div>
     <div id="pcatalog-private" style="display:none">
       {{ render_catalog(catalog_private, 'Собственник') }}
+    </div>
+    <div id="pcatalog-hotel" style="display:none">
+      {{ render_catalog(catalog_hotel, 'Номера отеля') }}
     </div>
   </div>
 </main>
@@ -172,12 +177,16 @@
         <label>Тип коттеджа *</label>
         <div class="owner-toggle">
           <label class="owner-option">
-            <input type="radio" name="svc_owner" value="Алма-Ата" checked onchange="onOwnerTypeChange()">
-            <span class="owner-btn owner-btn-alma">🏢 Алма-Ата</span>
+            <input type="radio" name="svc_owner" value="Коттеджи" checked onchange="onOwnerTypeChange()">
+            <span class="owner-btn owner-btn-alma">🏠 Коттеджи</span>
           </label>
           <label class="owner-option">
             <input type="radio" name="svc_owner" value="Собственник" onchange="onOwnerTypeChange()">
             <span class="owner-btn owner-btn-private">👤 Собственник</span>
+          </label>
+          <label class="owner-option">
+            <input type="radio" name="svc_owner" value="Номера отеля" onchange="onOwnerTypeChange()">
+            <span class="owner-btn owner-btn-hotel">🏨 Отель</span>
           </label>
         </div>
       </div>
@@ -301,10 +310,12 @@ function switchTab(name) {
 }
 
 function switchCatalogTab(type) {
-  document.getElementById('pcatalog-alma').style.display    = type==='alma'    ? '' : 'none';
-  document.getElementById('pcatalog-private').style.display = type==='private' ? '' : 'none';
+  ['alma','private','hotel'].forEach(t => {
+    document.getElementById('pcatalog-'+t).style.display = t===type ? '' : 'none';
+  });
   document.getElementById('ptab-alma').className    = 'owner-tab' + (type==='alma'    ? ' active-alma'    : '');
   document.getElementById('ptab-private').className = 'owner-tab' + (type==='private' ? ' active-private' : '');
+  document.getElementById('ptab-hotel').className   = 'owner-tab' + (type==='hotel'   ? ' active-alma'    : '');
 }
 
 // ── Modal ────────────────────────────────────────────────
@@ -326,7 +337,6 @@ function getOwnerType() {
 
 function onOwnerTypeChange() {
   const ownerType = getOwnerType();
-  // Фильтруем услуги в прайсе
   const sel = document.getElementById('order-service');
   sel.innerHTML = '<option value="">— выбрать из прайса —</option>';
   CATALOG.filter(s => s.owner_type === ownerType).forEach(s => {

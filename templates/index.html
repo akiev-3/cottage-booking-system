@@ -14,122 +14,144 @@
 <body>
 
 <header>
-  <h1>🏡 Управление коттеджами</h1>
+  <h1>🏡 Управление объектами</h1>
   <div class="header-right">
     <a href="/services" class="btn btn-outline">🛎️ Услуги</a>
     <a href="/export/csv" class="btn btn-csv">⬇️ CSV</a>
     <button class="btn btn-excel" onclick="toggleExcelMenu(event)">⬇️ Excel ▾</button>
     <div id="excel-menu" class="dropdown-menu" style="display:none">
-      <a href="/export/excel" class="dropdown-item">📊 Все брони</a>
-      <a href="/export/excel/owner/company" class="dropdown-item">🏢 Алма-Ата</a>
+      <a href="/export/excel"              class="dropdown-item">📊 Все брони</a>
+      <a href="/export/excel/owner/company" class="dropdown-item">🏠 Коттеджи</a>
       <a href="/export/excel/owner/private" class="dropdown-item">👤 Собственники</a>
+      <a href="/export/excel/owner/hotel"   class="dropdown-item">🏨 Номера отеля</a>
     </div>
-    <button class="btn btn-primary" onclick="openAddCottage()">+ Добавить коттедж</button>
+    <button class="btn btn-primary" onclick="openAddCottage()">+ Добавить</button>
     <a href="/logout" class="btn btn-outline">Выйти</a>
   </div>
 </header>
 
 <main>
-  <!-- Фильтр по владельцу -->
   <div class="owner-filter">
     <button class="filter-btn active" onclick="filterCottages('all', this)">Все</button>
-    <button class="filter-btn" onclick="filterCottages('alma', this)">🏢 Алма-Ата</button>
+    <button class="filter-btn" onclick="filterCottages('cottages', this)">🏠 Коттеджи</button>
     <button class="filter-btn" onclick="filterCottages('private', this)">👤 Собственники</button>
+    <button class="filter-btn" onclick="filterCottages('hotel', this)">🏨 Номера отеля</button>
   </div>
 
   <div id="cottages-grid" class="cottages-grid">
     {% for cottage in cottages %}
-    <div class="cottage-card"
-         id="card-{{ cottage.id }}"
-         data-owner="{{ 'private' if cottage.owner_type == 'Собственник' else 'alma' }}">
+    {% set otype = cottage.owner_type %}
+    <div class="cottage-card" id="card-{{ cottage.id }}"
+         data-owner="{{ 'private' if otype=='Собственник' else ('hotel' if otype=='Номера отеля' else 'cottages') }}">
       <div class="card-header">
         <h2>{{ cottage.name }}</h2>
         <div class="card-actions">
-          <button class="btn btn-sm btn-outline" onclick="editCottage({{ cottage.id }}, '{{ cottage.name }}', {{ cottage.capacity }}, {{ cottage.price_per_day }}, '{{ cottage.description }}', '{{ cottage.owner_type }}', '{{ cottage.owner_name or '' }}')">✏️</button>
+          <button class="btn btn-sm btn-outline" onclick="editCottage({{ cottage.id }}, '{{ cottage.name|e }}', {{ cottage.capacity or 0 }}, {{ cottage.price_per_day or 0 }}, '{{ cottage.description|e }}', '{{ otype }}', '{{ (cottage.owner_name or '')|e }}', '{{ cottage.contacts|e }}')">✏️</button>
           <button class="btn btn-sm btn-danger" onclick="deleteCottage({{ cottage.id }})">🗑️</button>
         </div>
       </div>
       <div class="card-body">
         <div class="info-row">
-          <span class="label">🏠 Владелец</span>
+          <span class="label">🏠 Тип</span>
           <span class="value">
-            {% if cottage.owner_type == 'Собственник' %}
+            {% if otype == 'Собственник' %}
               <span class="owner-badge owner-private">👤 Собственник{% if cottage.owner_name %}: {{ cottage.owner_name }}{% endif %}</span>
+            {% elif otype == 'Номера отеля' %}
+              <span class="owner-badge owner-hotel">🏨 Номера отеля</span>
             {% else %}
-              <span class="owner-badge owner-alma">🏢 Алма-Ата</span>
+              <span class="owner-badge owner-alma">🏠 Коттеджи</span>
             {% endif %}
           </span>
         </div>
+        {% if otype != 'Собственник' %}
         <div class="info-row">
           <span class="label">👥 Вместимость</span>
           <span class="value">{{ cottage.capacity }} чел.</span>
         </div>
         <div class="info-row">
           <span class="label">💰 Цена за сутки</span>
-          <span class="value">${{ "%.0f"|format(cottage.price_per_day) }}</span>
+          <span class="value">${{ "%.0f"|format(cottage.price_per_day or 0) }}</span>
         </div>
+        {% endif %}
+        {% if otype == 'Собственник' and cottage.contacts %}
+        <div class="info-row">
+          <span class="label">📞 Контакты</span>
+          <span class="value" style="font-size:0.85rem">{{ cottage.contacts }}</span>
+        </div>
+        {% endif %}
         {% if cottage.description %}
         <p class="description">{{ cottage.description }}</p>
         {% endif %}
       </div>
       <div class="card-footer">
         <a href="/cottages/{{ cottage.id }}/bookings" class="btn btn-primary full-width">📅 Брони</a>
-        <button class="btn btn-success full-width" onclick="openBookingModal({{ cottage.id }}, '{{ cottage.name }}', {{ cottage.capacity }}, {{ cottage.price_per_day }})">+ Новая бронь</button>
+        <button class="btn btn-success full-width" onclick="openBookingModal({{ cottage.id }}, '{{ cottage.name|e }}', {{ cottage.capacity or 0 }}, {{ cottage.price_per_day or 0 }})">+ Новая бронь</button>
       </div>
     </div>
     {% endfor %}
 
     {% if not cottages %}
-    <div class="empty-state">
-      <p>Коттеджей пока нет.<br>Добавьте первый коттедж!</p>
-    </div>
+    <div class="empty-state"><p>Объектов пока нет.<br>Нажмите «+ Добавить».</p></div>
     {% endif %}
   </div>
 </main>
 
-<!-- Modal: Добавить/редактировать коттедж -->
+<!-- Modal: Добавить/редактировать -->
 <div id="modal-add-cottage" class="modal-overlay" onclick="closeModalOverlay(event, 'modal-add-cottage')">
   <div class="modal">
     <div class="modal-header">
-      <h3 id="cottage-modal-title">Новый коттедж</h3>
+      <h3 id="cottage-modal-title">Новый объект</h3>
       <button class="close-btn" onclick="closeModal('modal-add-cottage')">✕</button>
     </div>
     <form id="form-cottage" onsubmit="submitCottage(event)">
       <input type="hidden" id="cottage-id" value="">
       <div class="form-group">
-        <label>Название коттеджа *</label>
-        <input type="text" id="cottage-name" required placeholder="Например: Коттедж №1">
-      </div>
-      <div class="form-row">
-        <div class="form-group">
-          <label>Вместимость (чел.) *</label>
-          <input type="number" id="cottage-capacity" required min="1" max="100" placeholder="4">
-        </div>
-        <div class="form-group">
-          <label>Цена за сутки ($) *</label>
-          <input type="number" id="cottage-price" required min="0" step="1" placeholder="50">
-        </div>
+        <label>Название *</label>
+        <input type="text" id="cottage-name" required placeholder="Например: Коттедж №1 / Номер 201">
       </div>
       <div class="form-group">
-        <label>Владелец *</label>
+        <label>Тип *</label>
         <div class="owner-toggle">
           <label class="owner-option">
-            <input type="radio" name="owner_type" id="owner-alma" value="Алма-Ата" checked onchange="toggleOwnerName()">
-            <span class="owner-btn owner-btn-alma">🏢 Алма-Ата</span>
+            <input type="radio" name="owner_type" id="owner-cottages" value="Коттеджи" checked onchange="onOwnerToggle()">
+            <span class="owner-btn owner-btn-alma">🏠 Коттеджи</span>
           </label>
           <label class="owner-option">
-            <input type="radio" name="owner_type" id="owner-private" value="Собственник" onchange="toggleOwnerName()">
+            <input type="radio" name="owner_type" id="owner-private" value="Собственник" onchange="onOwnerToggle()">
             <span class="owner-btn owner-btn-private">👤 Собственник</span>
+          </label>
+          <label class="owner-option">
+            <input type="radio" name="owner_type" id="owner-hotel" value="Номера отеля" onchange="onOwnerToggle()">
+            <span class="owner-btn owner-btn-hotel">🏨 Отель</span>
           </label>
         </div>
       </div>
-      <div class="form-group" id="owner-name-group" style="display:none">
+      <!-- Только для собственника -->
+      <div id="owner-name-group" style="display:none" class="form-group">
         <label>Имя собственника</label>
-        <input type="text" id="cottage-owner-name" placeholder="Например: Иванов И.И.">
+        <input type="text" id="cottage-owner-name" placeholder="Иванов И.И.">
+      </div>
+      <!-- Цена/вместимость — только НЕ для собственника -->
+      <div id="price-capacity-group">
+        <div class="form-row">
+          <div class="form-group">
+            <label>Вместимость (чел.)</label>
+            <input type="number" id="cottage-capacity" min="1" max="999" placeholder="4">
+          </div>
+          <div class="form-group">
+            <label>Цена за сутки ($)</label>
+            <input type="number" id="cottage-price" min="0" step="1" placeholder="50">
+          </div>
+        </div>
+      </div>
+      <!-- Контакты — только для собственника -->
+      <div id="contacts-group" style="display:none" class="form-group">
+        <label>📞 Контакты</label>
+        <textarea id="cottage-contacts" placeholder="+996 700 000 000 / Telegram: @name..." rows="2"></textarea>
       </div>
       <div class="form-group">
         <label>Описание</label>
-        <textarea id="cottage-description" placeholder="Краткое описание коттеджа..." rows="2"></textarea>
+        <textarea id="cottage-description" placeholder="Описание..." rows="2"></textarea>
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-outline" onclick="closeModal('modal-add-cottage')">Отмена</button>

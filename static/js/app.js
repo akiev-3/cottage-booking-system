@@ -8,8 +8,7 @@ function filterCottages(type, btn) {
   document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
   document.querySelectorAll('.cottage-card').forEach(card => {
-    const show = type === 'all' || card.dataset.owner === type;
-    card.style.display = show ? '' : 'none';
+    card.style.display = (type === 'all' || card.dataset.owner === type) ? '' : 'none';
   });
 }
 
@@ -35,46 +34,52 @@ function showToast(msg, type = '') {
 }
 
 // ── Cottage form ──
-function toggleOwnerName() {
-  const isPrivate = document.getElementById('owner-private').checked;
-  document.getElementById('owner-name-group').style.display = isPrivate ? 'block' : 'none';
+function onOwnerToggle() {
+  const type = document.querySelector('input[name="owner_type"]:checked')?.value;
+  const isPrivate = type === 'Собственник';
+  document.getElementById('owner-name-group').style.display    = isPrivate ? 'block' : 'none';
+  document.getElementById('price-capacity-group').style.display = isPrivate ? 'none'  : 'block';
+  document.getElementById('contacts-group').style.display       = isPrivate ? 'block' : 'none';
 }
 
 function openAddCottage() {
-  document.getElementById('cottage-modal-title').textContent = 'Новый коттедж';
+  document.getElementById('cottage-modal-title').textContent = 'Новый объект';
   document.getElementById('cottage-id').value = '';
   document.getElementById('form-cottage').reset();
-  document.getElementById('owner-alma').checked = true;
-  document.getElementById('owner-name-group').style.display = 'none';
+  document.getElementById('owner-cottages').checked = true;
+  onOwnerToggle();
   openModal('modal-add-cottage');
 }
 
-function editCottage(id, name, capacity, price, desc, ownerType, ownerName) {
-  document.getElementById('cottage-modal-title').textContent = 'Редактировать коттедж';
-  document.getElementById('cottage-id').value = id;
-  document.getElementById('cottage-name').value = name;
-  document.getElementById('cottage-capacity').value = capacity;
-  document.getElementById('cottage-price').value = price;
-  document.getElementById('cottage-description').value = desc;
-  const isPrivate = ownerType === 'Собственник';
-  document.getElementById('owner-alma').checked    = !isPrivate;
-  document.getElementById('owner-private').checked = isPrivate;
-  document.getElementById('cottage-owner-name').value = ownerName || '';
-  document.getElementById('owner-name-group').style.display = isPrivate ? 'block' : 'none';
+function editCottage(id, name, capacity, price, desc, ownerType, ownerName, contacts) {
+  document.getElementById('cottage-modal-title').textContent = 'Редактировать';
+  document.getElementById('cottage-id').value              = id;
+  document.getElementById('cottage-name').value            = name;
+  document.getElementById('cottage-capacity').value        = capacity;
+  document.getElementById('cottage-price').value           = price;
+  document.getElementById('cottage-description').value     = desc;
+  document.getElementById('cottage-contacts').value        = contacts || '';
+  document.getElementById('cottage-owner-name').value      = ownerName || '';
+  document.getElementById('owner-cottages').checked        = ownerType === 'Коттеджи';
+  document.getElementById('owner-private').checked         = ownerType === 'Собственник';
+  document.getElementById('owner-hotel').checked           = ownerType === 'Номера отеля';
+  onOwnerToggle();
   openModal('modal-add-cottage');
 }
 
 async function submitCottage(e) {
   e.preventDefault();
   const id = document.getElementById('cottage-id').value;
-  const ownerType = document.querySelector('input[name="owner_type"]:checked')?.value || 'Алма-Ата';
+  const ownerType = document.querySelector('input[name="owner_type"]:checked')?.value || 'Коттеджи';
+  const isPrivate = ownerType === 'Собственник';
   const body = {
     name:          document.getElementById('cottage-name').value.trim(),
-    capacity:      document.getElementById('cottage-capacity').value,
-    price_per_day: document.getElementById('cottage-price').value,
+    capacity:      isPrivate ? 0 : (document.getElementById('cottage-capacity').value || 0),
+    price_per_day: isPrivate ? 0 : (document.getElementById('cottage-price').value || 0),
     description:   document.getElementById('cottage-description').value.trim(),
+    contacts:      isPrivate ? document.getElementById('cottage-contacts').value.trim() : '',
     owner_type:    ownerType,
-    owner_name:    ownerType === 'Собственник' ? document.getElementById('cottage-owner-name').value.trim() : '',
+    owner_name:    isPrivate ? document.getElementById('cottage-owner-name').value.trim() : '',
   };
   const url    = id ? `/cottages/${id}` : '/cottages';
   const method = id ? 'PUT' : 'POST';

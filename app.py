@@ -46,9 +46,14 @@ def init_db():
             name          VARCHAR(255) NOT NULL,
             capacity      INT          NOT NULL,
             price_per_day FLOAT        NOT NULL,
-            description   TEXT         DEFAULT ''
+            description   TEXT         DEFAULT '',
+            owner_type    VARCHAR(50)  DEFAULT 'Алма-Ата',
+            owner_name    VARCHAR(255) DEFAULT ''
         )
     """)
+    # Миграция для существующих таблиц
+    cur.execute("ALTER TABLE cottages ADD COLUMN IF NOT EXISTS owner_type VARCHAR(50) DEFAULT 'Алма-Ата'")
+    cur.execute("ALTER TABLE cottages ADD COLUMN IF NOT EXISTS owner_name VARCHAR(255) DEFAULT ''")
     cur.execute("""
         CREATE TABLE IF NOT EXISTS bookings (
             id                   SERIAL PRIMARY KEY,
@@ -246,10 +251,10 @@ def create_cottage():
     body = request.json
     conn = get_db(); cur = conn.cursor()
     cur.execute("""
-        INSERT INTO cottages (name, capacity, price_per_day, description)
-        VALUES (%s, %s, %s, %s) RETURNING *
-    """, (body["name"], int(body["capacity"]),
-          float(body["price_per_day"]), body.get("description", "")))
+        INSERT INTO cottages (name, capacity, price_per_day, description, owner_type, owner_name)
+        VALUES (%s, %s, %s, %s, %s, %s) RETURNING *
+    """, (body["name"], int(body["capacity"]), float(body["price_per_day"]),
+          body.get("description",""), body.get("owner_type","Алма-Ата"), body.get("owner_name","")))
     cottage = dict(cur.fetchone())
     conn.commit(); cur.close(); conn.close()
     return jsonify(cottage), 201
@@ -261,10 +266,12 @@ def update_cottage(cottage_id):
     body = request.json
     conn = get_db(); cur = conn.cursor()
     cur.execute("""
-        UPDATE cottages SET name=%s, capacity=%s, price_per_day=%s, description=%s
+        UPDATE cottages SET name=%s, capacity=%s, price_per_day=%s, description=%s,
+                            owner_type=%s, owner_name=%s
         WHERE id=%s RETURNING *
-    """, (body["name"], int(body["capacity"]),
-          float(body["price_per_day"]), body.get("description", ""), cottage_id))
+    """, (body["name"], int(body["capacity"]), float(body["price_per_day"]),
+          body.get("description",""), body.get("owner_type","Алма-Ата"),
+          body.get("owner_name",""), cottage_id))
     row = cur.fetchone()
     conn.commit(); cur.close(); conn.close()
     if not row:

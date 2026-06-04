@@ -31,11 +31,21 @@
       <div class="card-header">
         <h2>{{ cottage.name }}</h2>
         <div class="card-actions">
-          <button class="btn btn-sm btn-outline" onclick="editCottage({{ cottage.id }}, '{{ cottage.name }}', {{ cottage.capacity }}, {{ cottage.price_per_day }}, '{{ cottage.description }}')">✏️</button>
+          <button class="btn btn-sm btn-outline" onclick="editCottage({{ cottage.id }}, '{{ cottage.name }}', {{ cottage.capacity }}, {{ cottage.price_per_day }}, '{{ cottage.description }}', '{{ cottage.owner_type }}', '{{ cottage.owner_name or '' }}')">✏️</button>
           <button class="btn btn-sm btn-danger" onclick="deleteCottage({{ cottage.id }})">🗑️</button>
         </div>
       </div>
       <div class="card-body">
+        <div class="info-row">
+          <span class="label">🏠 Владелец</span>
+          <span class="value">
+            {% if cottage.owner_type == 'Собственник' %}
+              <span class="owner-badge owner-private">Собственник{% if cottage.owner_name %}: {{ cottage.owner_name }}{% endif %}</span>
+            {% else %}
+              <span class="owner-badge owner-alma">Алма-Ата</span>
+            {% endif %}
+          </span>
+        </div>
         <div class="info-row">
           <span class="label">👥 Вместимость</span>
           <span class="value">{{ cottage.capacity }} чел.</span>
@@ -87,8 +97,25 @@
         </div>
       </div>
       <div class="form-group">
+        <label>Владелец *</label>
+        <div class="owner-toggle">
+          <label class="owner-option">
+            <input type="radio" name="owner_type" id="owner-alma" value="Алма-Ата" checked onchange="toggleOwnerName()">
+            <span class="owner-btn owner-btn-alma">🏢 Алма-Ата</span>
+          </label>
+          <label class="owner-option">
+            <input type="radio" name="owner_type" id="owner-private" value="Собственник" onchange="toggleOwnerName()">
+            <span class="owner-btn owner-btn-private">👤 Собственник</span>
+          </label>
+        </div>
+      </div>
+      <div class="form-group" id="owner-name-group" style="display:none">
+        <label>Имя собственника</label>
+        <input type="text" id="cottage-owner-name" placeholder="Например: Иванов И.И.">
+      </div>
+      <div class="form-group">
         <label>Описание</label>
-        <textarea id="cottage-description" placeholder="Краткое описание коттеджа..." rows="3"></textarea>
+        <textarea id="cottage-description" placeholder="Краткое описание коттеджа..." rows="2"></textarea>
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-outline" onclick="closeModal('modal-add-cottage')">Отмена</button>

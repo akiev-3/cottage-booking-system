@@ -14,30 +14,46 @@ function showToast(msg, type = '') {
 }
 
 // ── Cottage form ──
+function toggleOwnerName() {
+  const isPrivate = document.getElementById('owner-private').checked;
+  document.getElementById('owner-name-group').style.display = isPrivate ? 'block' : 'none';
+}
+
 function openAddCottage() {
   document.getElementById('cottage-modal-title').textContent = 'Новый коттедж';
   document.getElementById('cottage-id').value = '';
   document.getElementById('form-cottage').reset();
+  document.getElementById('owner-alma').checked = true;
+  document.getElementById('owner-name-group').style.display = 'none';
   openModal('modal-add-cottage');
 }
-function editCottage(id, name, capacity, price, desc) {
+
+function editCottage(id, name, capacity, price, desc, ownerType, ownerName) {
   document.getElementById('cottage-modal-title').textContent = 'Редактировать коттедж';
   document.getElementById('cottage-id').value = id;
   document.getElementById('cottage-name').value = name;
   document.getElementById('cottage-capacity').value = capacity;
   document.getElementById('cottage-price').value = price;
   document.getElementById('cottage-description').value = desc;
+  const isPrivate = ownerType === 'Собственник';
+  document.getElementById('owner-alma').checked    = !isPrivate;
+  document.getElementById('owner-private').checked = isPrivate;
+  document.getElementById('cottage-owner-name').value = ownerName || '';
+  document.getElementById('owner-name-group').style.display = isPrivate ? 'block' : 'none';
   openModal('modal-add-cottage');
 }
 
 async function submitCottage(e) {
   e.preventDefault();
   const id = document.getElementById('cottage-id').value;
+  const ownerType = document.querySelector('input[name="owner_type"]:checked')?.value || 'Алма-Ата';
   const body = {
     name:          document.getElementById('cottage-name').value.trim(),
     capacity:      document.getElementById('cottage-capacity').value,
     price_per_day: document.getElementById('cottage-price').value,
     description:   document.getElementById('cottage-description').value.trim(),
+    owner_type:    ownerType,
+    owner_name:    ownerType === 'Собственник' ? document.getElementById('cottage-owner-name').value.trim() : '',
   };
   const url    = id ? `/cottages/${id}` : '/cottages';
   const method = id ? 'PUT' : 'POST';

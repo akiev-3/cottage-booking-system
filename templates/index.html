@@ -83,10 +83,12 @@
         <p class="description">{{ cottage.description }}</p>
         {% endif %}
       </div>
+      {% if otype != 'Собственник' %}
       <div class="card-footer">
         <a href="/cottages/{{ cottage.id }}/bookings" class="btn btn-primary full-width">📅 Брони</a>
         <button class="btn btn-success full-width" onclick="openBookingModal({{ cottage.id }}, '{{ cottage.name|e }}', {{ cottage.capacity or 0 }}, {{ cottage.price_per_day or 0 }})">+ Новая бронь</button>
       </div>
+      {% endif %}
     </div>
     {% endfor %}
 

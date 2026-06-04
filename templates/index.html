@@ -51,33 +51,38 @@
         </div>
       </div>
       <div class="card-body">
-        <div class="info-row">
-          <span class="label">🏠 Тип</span>
-          <span class="value">
-            {% if otype == 'Собственник' %}
-              <span class="owner-badge owner-private">👤 Собственник{% if cottage.owner_name %}: {{ cottage.owner_name }}{% endif %}</span>
-            {% elif otype == 'Номера отеля' %}
-              <span class="owner-badge owner-hotel">🏨 Номера отеля</span>
-            {% else %}
-              <span class="owner-badge owner-alma">🏠 Коттеджи</span>
-            {% endif %}
-          </span>
-        </div>
-        {% if otype != 'Собственник' %}
-        <div class="info-row">
-          <span class="label">👥 Вместимость</span>
-          <span class="value">{{ cottage.capacity }} чел.</span>
-        </div>
-        <div class="info-row">
-          <span class="label">💰 Цена за сутки</span>
-          <span class="value">${{ "%.0f"|format(cottage.price_per_day or 0) }}</span>
-        </div>
-        {% endif %}
-        {% if otype == 'Собственник' and cottage.contacts %}
-        <div class="info-row">
-          <span class="label">📞 Контакты</span>
-          <span class="value" style="font-size:0.85rem">{{ cottage.contacts }}</span>
-        </div>
+        {% if otype == 'Собственник' %}
+          {% if cottage.owner_name %}
+          <div class="info-row">
+            <span class="label">👤 Собственник</span>
+            <span class="value" style="font-size:0.88rem">{{ cottage.owner_name }}</span>
+          </div>
+          {% endif %}
+          {% if cottage.contacts %}
+          <div class="info-row">
+            <span class="label">📞 Контакты</span>
+            <span class="value" style="font-size:0.85rem;word-break:break-word;white-space:normal;text-align:right;max-width:60%">{{ cottage.contacts }}</span>
+          </div>
+          {% endif %}
+        {% else %}
+          <div class="info-row">
+            <span class="label">🏠 Тип</span>
+            <span class="value">
+              {% if otype == 'Номера отеля' %}
+                <span class="owner-badge owner-hotel">🏨 Номера отеля</span>
+              {% else %}
+                <span class="owner-badge owner-alma">🏠 Коттеджи</span>
+              {% endif %}
+            </span>
+          </div>
+          <div class="info-row">
+            <span class="label">👥 Вместимость</span>
+            <span class="value">{{ cottage.capacity }} чел.</span>
+          </div>
+          <div class="info-row">
+            <span class="label">💰 Цена за сутки</span>
+            <span class="value">${{ "%.0f"|format(cottage.price_per_day or 0) }}</span>
+          </div>
         {% endif %}
         {% if cottage.description %}
         <p class="description">{{ cottage.description }}</p>

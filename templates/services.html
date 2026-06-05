@@ -24,9 +24,9 @@
   .owner-tab.active-alma    { background:#dbeafe;border-color:#3b82f6;color:#1d4ed8; }
   .owner-tab.active-private { background:#fef9c3;border-color:#f59e0b;color:#92400e; }
 
-  .catalog-section { margin-bottom:28px; }
+  .catalog-section { margin-bottom:28px; overflow-x:auto; -webkit-overflow-scrolling:touch; }
   .catalog-section h3 { font-size:0.95rem;font-weight:700;margin-bottom:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.04em; }
-  .catalog-table { width:100%;border-collapse:collapse;background:var(--card);border-radius:var(--radius);box-shadow:var(--shadow);overflow:hidden; }
+  .catalog-table { width:100%;min-width:480px;border-collapse:collapse;background:var(--card);border-radius:var(--radius);box-shadow:var(--shadow);overflow:hidden; }
   .catalog-table th { background:var(--bg);padding:10px 14px;text-align:left;font-size:0.78rem;text-transform:uppercase;letter-spacing:0.04em;color:var(--muted);border-bottom:1px solid var(--border); }
   .catalog-table td { padding:10px 14px;border-bottom:1px solid var(--border);font-size:0.88rem;vertical-align:middle; }
   .catalog-table tr:last-child td { border-bottom:none; }
@@ -433,6 +433,7 @@ async function submitOrder(e) {
   const data = await res.json();
   if (!res.ok) { showToast(data.error,'error'); return; }
   showToast('Заказ добавлен!','success');
+  localStorage.setItem('svcTab', 'orders');  // остаться на вкладке заказов
   closeModal('modal-order');
   setTimeout(()=>location.reload(),600);
 }
@@ -471,10 +472,14 @@ async function deleteCatalogItem(id) {
 }
 
 const OWNER_LABELS = {'Коттеджи':'🏠 Коттеджи','Собственник':'👤 Собственник','Номера отеля':'🏨 Номера отеля'};
+const OWNER_TO_TAB = {'Коттеджи':'alma','Собственник':'private','Номера отеля':'hotel'};
 function openAddService(ownerType) {
   document.getElementById('form-add-service').reset();
   document.getElementById('new-svc-owner').value = ownerType;
   document.getElementById('add-svc-owner-label').textContent = OWNER_LABELS[ownerType] || ownerType;
+  // запоминаем вкладку, чтобы после перезагрузки остаться здесь
+  localStorage.setItem('svcTab', 'catalog');
+  localStorage.setItem('svcCatTab', OWNER_TO_TAB[ownerType] || 'alma');
   openModal('modal-add-service');
 }
 

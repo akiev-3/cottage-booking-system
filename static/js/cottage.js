@@ -81,6 +81,8 @@ async function submitBookingPage(e) {
   if (!rate || rate <= 0) { showToast('Введите курс доллара', 'error'); return; }
   const ci = document.getElementById('booking-checkin').value;
   const co = document.getElementById('booking-checkout').value;
+  if (!ci || !co) { showToast('Выберите даты заезда и выезда', 'error'); return; }
+  if (new Date(co) <= new Date(ci)) { showToast('Дата выезда должна быть позже заезда', 'error'); return; }
   if (rangeOverlaps(ci, co)) { showToast('❌ Эти даты уже заняты!', 'error'); return; }
   const body = {
     cottage_id: COTTAGE_ID,

@@ -83,8 +83,8 @@
           <tr id="card-{{ c.id }}">
             <td class="num-col">{{ loop.index }}</td>
             <td><strong>{{ c.name }}</strong>{% if c.description %}<br><span class="muted-sm">{{ c.description }}</span>{% endif %}</td>
-            {% if detail == 'size' %}<td>{{ ('📐 ' ~ c.cottage_size) if c.cottage_size else '—' }}</td>
-            {% elif detail == 'floor' %}<td>{{ ('🛗 ' ~ c.floor) if c.floor else '—' }}</td>
+            {% if detail == 'size' %}<td>{{ c.cottage_size or '—' }}</td>
+            {% elif detail == 'floor' %}<td>{{ c.floor or '—' }}</td>
             {% elif detail == 'type' %}<td><span class="owner-badge {{ pinfo.badge }}">{{ pinfo.label }}</span></td>{% endif %}
             <td>{{ c.capacity }} чел.</td>
             <td>{{ c.rooms or '—' }}</td>
@@ -126,7 +126,7 @@
     {% if privates %}
     <div class="objects-list-wrap">
       <table class="objects-list">
-        <thead><tr><th class="num-col">№</th><th>Название</th><th>Тип</th><th>Собственник</th><th>Контакты</th><th></th></tr></thead>
+        <thead><tr><th class="num-col">№</th><th>Название</th><th>Тип</th><th>Собственник</th><th>Контакты</th><th>Описание</th><th></th></tr></thead>
         <tbody>
           {% for c in privates %}
           {% set pinfo = ptype_map.get(c.property_type, ptype_map['Коттедж']) %}
@@ -136,6 +136,7 @@
             <td><span class="owner-badge {{ pinfo.badge }}">{{ pinfo.label }}</span></td>
             <td class="details-cell">{{ c.owner_name or '—' }}</td>
             <td class="details-cell"><span class="muted-sm">{{ c.contacts or '—' }}</span></td>
+            <td class="details-cell"><span class="muted-sm">{{ c.description or '—' }}</span></td>
             <td>{{ act(c, True) }}</td>
           </tr>
           {% endfor %}

@@ -350,16 +350,22 @@ def delete_cottage(cottage_id):
 
 # ── Демо-данные ───────────────────────────────────────────
 
-@app.route("/seed-demo")
+@app.route("/seed-demo", methods=["GET", "POST"])
 @login_required
 def seed_demo():
-    """Генерирует тестовые брони и заказы услуг для объектов компании.
-    По 5 броней на каждый объект и услуги/заказы для каждого типа."""
+    """Генерирует тестовые брони и заказы услуг для объектов компании."""
     from datetime import timedelta
-    import random
+    import random, traceback
 
     conn = get_db(); cur = conn.cursor()
+    try:
+        return _do_seed(cur, conn, timedelta, random)
+    except Exception as e:
+        conn.rollback(); cur.close(); conn.close()
+        return jsonify({"ok": False, "error": str(e), "trace": traceback.format_exc()[-1500:]}), 500
 
+
+def _do_seed(cur, conn, timedelta, random):
     # ── Демо-услуги для каждого типа объекта (если их нет) ──
     DEMO_SERVICES = {
         "Коттедж": [

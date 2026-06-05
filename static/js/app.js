@@ -3,6 +3,26 @@ function openModal(id) { document.getElementById(id).classList.add('open'); }
 function closeModal(id) { document.getElementById(id).classList.remove('open'); }
 function closeModalOverlay(e, id) { if (e.target.id === id) closeModal(id); }
 
+// ── Демо-данные ──
+async function seedDemo() {
+  if (!confirm('Сгенерировать тестовые брони и заказы услуг для всех объектов компании?')) return;
+  showToast('Генерация данных…');
+  try {
+    const res  = await fetch('/seed-demo', { method: 'POST' });
+    const data = await res.json();
+    if (!res.ok || !data.ok) {
+      showToast('Ошибка: ' + (data.error || res.status), 'error');
+      console.error('seed error:', data);
+      return;
+    }
+    showToast(data.message || 'Готово!', 'success');
+    setTimeout(() => location.reload(), 1500);
+  } catch (e) {
+    showToast('Ошибка сети', 'error');
+    console.error(e);
+  }
+}
+
 // ── Переключение вида (отдельная таблица на каждый тип) ──
 const VIEW_ORDER = ['all', 'cottage', 'hotel', 'apartment', 'employee', 'private'];
 function showView(type, btn) {

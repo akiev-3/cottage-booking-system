@@ -20,13 +20,14 @@
   <h1>🏡 Управление объектами</h1>
   <div class="header-right">
     <a href="/services" class="btn btn-outline">🛎️ Услуги</a>
-    <a href="/export/csv" class="btn btn-csv">⬇️ CSV</a>
     <button class="btn btn-excel" onclick="toggleExcelMenu(event)">⬇️ Excel ▾</button>
     <div id="excel-menu" class="dropdown-menu" style="display:none">
-      <a href="/export/excel"              class="dropdown-item">📊 Все брони</a>
-      <a href="/export/excel/owner/company" class="dropdown-item">🏠 Коттеджи</a>
-      <a href="/export/excel/owner/private" class="dropdown-item">👤 Собственники</a>
-      <a href="/export/excel/owner/hotel"   class="dropdown-item">🏨 Номера отеля</a>
+      <a href="/export/excel"               class="dropdown-item">📊 Все брони</a>
+      <a href="/export/excel/owner/cottage"   class="dropdown-item">🏠 Коттеджи</a>
+      <a href="/export/excel/owner/hotel"     class="dropdown-item">🏨 Номера отеля</a>
+      <a href="/export/excel/owner/apartment" class="dropdown-item">🏢 Квартиры</a>
+      <a href="/export/excel/owner/employee"  class="dropdown-item">👷 Сотрудники</a>
+      <a href="/export/excel/owner/private"   class="dropdown-item">👤 Собственники</a>
     </div>
     <button class="btn btn-primary" onclick="openAddCottage()">+ Добавить</button>
     <a href="/logout" class="btn btn-outline">Выйти</a>
@@ -62,7 +63,7 @@
       <div class="card-header">
         <h2>{{ cottage.name }}</h2>
         <div class="card-actions">
-          <button class="btn btn-sm btn-outline" onclick="editCottage({{ cottage.id }}, '{{ cottage.name|e }}', {{ cottage.capacity or 0 }}, {{ cottage.price_per_day or 0 }}, '{{ cottage.description|e }}', '{{ otype }}', '{{ (cottage.owner_name or '')|e }}', '{{ cottage.contacts|e }}', '{{ ptype }}')">✏️</button>
+          <button class="btn btn-sm btn-outline" onclick="editCottage({{ cottage.id }}, '{{ cottage.name|e }}', {{ cottage.capacity or 0 }}, {{ cottage.price_per_day or 0 }}, '{{ cottage.description|e }}', '{{ otype }}', '{{ (cottage.owner_name or '')|e }}', '{{ cottage.contacts|e }}', '{{ ptype }}', '{{ cottage.cottage_size or '' }}', {{ cottage.rooms or 0 }}, '{{ cottage.floor or '' }}')">✏️</button>
           <button class="btn btn-sm btn-danger" onclick="deleteCottage({{ cottage.id }})">🗑️</button>
         </div>
       </div>
@@ -85,9 +86,25 @@
           </div>
           {% endif %}
         {% else %}
+          {% if ptype == 'Коттедж' and cottage.cottage_size %}
+          <div class="info-row">
+            <span class="label">📐 Размер</span>
+            <span class="value">{{ cottage.cottage_size }}</span>
+          </div>
+          {% endif %}
+          {% if ptype != 'Коттедж' and cottage.floor %}
+          <div class="info-row">
+            <span class="label">🛗 Этаж</span>
+            <span class="value">{{ cottage.floor }}</span>
+          </div>
+          {% endif %}
           <div class="info-row">
             <span class="label">👥 Вместимость</span>
             <span class="value">{{ cottage.capacity }} чел.</span>
+          </div>
+          <div class="info-row">
+            <span class="label">🚪 Комнат</span>
+            <span class="value">{{ cottage.rooms or '—' }}</span>
           </div>
           <div class="info-row">
             <span class="label">💰 Цена за сутки</span>
@@ -132,11 +149,19 @@
       </div>
       <div class="form-group">
         <label>Тип объекта *</label>
-        <select id="cottage-ptype" class="sel" required>
+        <select id="cottage-ptype" class="sel" required onchange="onOwnerToggle()">
           <option value="Коттедж">🏠 Коттедж</option>
           <option value="Номер отеля">🏨 Номер отеля</option>
           <option value="Квартира">🏢 Квартира</option>
           <option value="Номер для сотрудников">👷 Номер для сотрудников</option>
+        </select>
+      </div>
+      <!-- Размер коттеджа — только для Коттедж -->
+      <div id="cottage-size-group" class="form-group">
+        <label>Размер коттеджа</label>
+        <select id="cottage-size" class="sel">
+          <option value="Большой">🏠 Большой</option>
+          <option value="Маленький">🏡 Маленький</option>
         </select>
       </div>
       <div class="form-group">
@@ -167,6 +192,17 @@
           <div class="form-group">
             <label>Цена за сутки ($)</label>
             <input type="number" id="cottage-price" min="0" step="1" placeholder="50">
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Кол-во комнат</label>
+            <input type="number" id="cottage-rooms" min="0" max="99" placeholder="2">
+          </div>
+          <!-- Этаж — для квартир / номеров / сотрудников -->
+          <div class="form-group" id="floor-group" style="display:none">
+            <label>Этаж</label>
+            <input type="text" id="cottage-floor" placeholder="3">
           </div>
         </div>
       </div>

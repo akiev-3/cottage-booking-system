@@ -33,12 +33,9 @@ function rangeOverlaps(ci, co) {
   });
 }
 function showBusyHint() {
+  // Текст-подсказку не показываем — занятые даты видны в календаре зачёркнутыми
   const hint = document.getElementById('booking-busy-hint');
-  if (!hint) return;
-  if (!BOOKED_RANGES.length) { hint.style.display = 'none'; return; }
-  const fmt = s => { const [y,m,d]=s.split('-'); return `${d}/${m}/${y}`; };
-  hint.innerHTML = '🔴 Занято: ' + BOOKED_RANGES.map(r => `${fmt(r.from)}–${fmt(r.to)}`).join(', ');
-  hint.style.display = 'block';
+  if (hint) hint.style.display = 'none';
 }
 
 let fpCheckin = null, fpCheckout = null;

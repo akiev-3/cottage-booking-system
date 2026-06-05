@@ -55,10 +55,16 @@ function showToast(msg, type = '') {
 // ── Cottage form ──
 function onOwnerToggle() {
   const ownerType = document.querySelector('input[name="owner_type"]:checked')?.value;
+  const ptype     = document.getElementById('cottage-ptype').value;
   const isPrivate = ownerType === 'Собственник';
-  document.getElementById('owner-name-group').style.display     = isPrivate ? 'block' : 'none';
-  document.getElementById('price-capacity-group').style.display  = isPrivate ? 'none'  : 'block';
-  document.getElementById('contacts-group').style.display        = isPrivate ? 'block' : 'none';
+  const isCottage = ptype === 'Коттедж';
+  document.getElementById('owner-name-group').style.display    = isPrivate ? 'block' : 'none';
+  document.getElementById('price-capacity-group').style.display = isPrivate ? 'none'  : 'block';
+  document.getElementById('contacts-group').style.display       = isPrivate ? 'block' : 'none';
+  // Размер коттеджа — только для коттеджей компании
+  document.getElementById('cottage-size-group').style.display   = (!isPrivate && isCottage) ? 'block' : 'none';
+  // Этаж — для квартир / номеров отеля / сотрудников (не коттедж, не собственник)
+  document.getElementById('floor-group').style.display          = (!isPrivate && !isCottage) ? 'block' : 'none';
 }
 
 function openAddCottage() {
@@ -71,7 +77,7 @@ function openAddCottage() {
   openModal('modal-add-cottage');
 }
 
-function editCottage(id, name, capacity, price, desc, ownerType, ownerName, contacts, propertyType) {
+function editCottage(id, name, capacity, price, desc, ownerType, ownerName, contacts, propertyType, size, rooms, floor) {
   document.getElementById('cottage-modal-title').textContent = 'Редактировать';
   document.getElementById('cottage-id').value              = id;
   document.getElementById('cottage-name').value            = name;
@@ -81,6 +87,9 @@ function editCottage(id, name, capacity, price, desc, ownerType, ownerName, cont
   document.getElementById('cottage-contacts').value        = contacts || '';
   document.getElementById('cottage-owner-name').value      = ownerName || '';
   document.getElementById('cottage-ptype').value           = propertyType || 'Коттедж';
+  document.getElementById('cottage-size').value            = size || 'Большой';
+  document.getElementById('cottage-rooms').value           = rooms || '';
+  document.getElementById('cottage-floor').value           = floor || '';
   document.getElementById('owner-company').checked         = ownerType !== 'Собственник';
   document.getElementById('owner-private').checked         = ownerType === 'Собственник';
   onOwnerToggle();
@@ -93,6 +102,7 @@ async function submitCottage(e) {
   const ownerType    = document.querySelector('input[name="owner_type"]:checked')?.value || 'Компания';
   const propertyType = document.getElementById('cottage-ptype').value || 'Коттедж';
   const isPrivate    = ownerType === 'Собственник';
+  const isCottage    = propertyType === 'Коттедж';
   const body = {
     name:          document.getElementById('cottage-name').value.trim(),
     capacity:      isPrivate ? 0 : (document.getElementById('cottage-capacity').value || 0),
@@ -102,6 +112,9 @@ async function submitCottage(e) {
     owner_type:    ownerType,
     property_type: propertyType,
     owner_name:    isPrivate ? document.getElementById('cottage-owner-name').value.trim() : '',
+    cottage_size:  (!isPrivate && isCottage) ? document.getElementById('cottage-size').value : '',
+    rooms:         isPrivate ? 0 : (document.getElementById('cottage-rooms').value || 0),
+    floor:         (!isPrivate && !isCottage) ? document.getElementById('cottage-floor').value.trim() : '',
   };
   const url    = id ? `/cottages/${id}` : '/cottages';
   const method = id ? 'PUT' : 'POST';
@@ -160,12 +173,9 @@ async function openBookingModal(cottageId, name, capacity, price) {
 }
 
 function showBusyHint() {
+  // Текст-подсказку не показываем — занятые даты видны в календаре зачёркнутыми
   const hint = document.getElementById('booking-busy-hint');
-  if (!hint) return;
-  if (!occupiedRanges.length) { hint.style.display = 'none'; return; }
-  const fmt = s => { const [y,m,d]=s.split('-'); return `${d}/${m}/${y}`; };
-  hint.innerHTML = '🔴 Занято: ' + occupiedRanges.map(r => `${fmt(r.from)}–${fmt(r.to)}`).join(', ');
-  hint.style.display = 'block';
+  if (hint) hint.style.display = 'none';
 }
 
 function initBookingCalendars() {

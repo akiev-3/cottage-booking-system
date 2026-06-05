@@ -61,6 +61,9 @@ def init_db():
     cur.execute("ALTER TABLE cottages ADD COLUMN IF NOT EXISTS contacts      TEXT         DEFAULT ''")
     cur.execute("ALTER TABLE cottages ADD COLUMN IF NOT EXISTS capacity      INT          DEFAULT 0")
     cur.execute("ALTER TABLE cottages ADD COLUMN IF NOT EXISTS price_per_day FLOAT        DEFAULT 0")
+    cur.execute("ALTER TABLE cottages ADD COLUMN IF NOT EXISTS cottage_size  VARCHAR(20)  DEFAULT ''")
+    cur.execute("ALTER TABLE cottages ADD COLUMN IF NOT EXISTS rooms         INT          DEFAULT 0")
+    cur.execute("ALTER TABLE cottages ADD COLUMN IF NOT EXISTS floor         VARCHAR(20)  DEFAULT ''")
     # Миграция данных: старые owner_type → новые owner_type + property_type
     cur.execute("UPDATE cottages SET owner_type='Компания',  property_type='Коттедж'     WHERE owner_type IN ('Алма-Ата','Коттеджи')")
     cur.execute("UPDATE cottages SET owner_type='Компания',  property_type='Номер отеля' WHERE owner_type = 'Номера отеля'")
@@ -288,15 +291,19 @@ def create_cottage():
     owner_type    = body.get("owner_type", "Компания")
     property_type = body.get("property_type", "Коттедж")
     cur.execute("""
-        INSERT INTO cottages (name, capacity, price_per_day, description, contacts, owner_type, property_type, owner_name)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s) RETURNING *
+        INSERT INTO cottages (name, capacity, price_per_day, description, contacts,
+                              owner_type, property_type, owner_name, cottage_size, rooms, floor)
+        VALUES (%s,%s,%s,%s,%s, %s,%s,%s, %s,%s,%s) RETURNING *
     """, (body["name"],
           int(body.get("capacity") or 0),
           float(body.get("price_per_day") or 0),
           body.get("description",""),
           body.get("contacts",""),
           owner_type, property_type,
-          body.get("owner_name","")))
+          body.get("owner_name",""),
+          body.get("cottage_size",""),
+          int(body.get("rooms") or 0),
+          body.get("floor","")))
     cottage = dict(cur.fetchone())
     conn.commit(); cur.close(); conn.close()
     return jsonify(cottage), 201
@@ -311,7 +318,8 @@ def update_cottage(cottage_id):
     property_type = body.get("property_type", "Коттедж")
     cur.execute("""
         UPDATE cottages SET name=%s, capacity=%s, price_per_day=%s,
-                            description=%s, contacts=%s, owner_type=%s, property_type=%s, owner_name=%s
+                            description=%s, contacts=%s, owner_type=%s, property_type=%s, owner_name=%s,
+                            cottage_size=%s, rooms=%s, floor=%s
         WHERE id=%s RETURNING *
     """, (body["name"],
           int(body.get("capacity") or 0),
@@ -320,6 +328,9 @@ def update_cottage(cottage_id):
           body.get("contacts",""),
           owner_type, property_type,
           body.get("owner_name",""),
+          body.get("cottage_size",""),
+          int(body.get("rooms") or 0),
+          body.get("floor",""),
           cottage_id))
     row = cur.fetchone()
     conn.commit(); cur.close(); conn.close()
@@ -1035,11 +1046,13 @@ with app.app_context():
 @app.route("/export/excel/owner/<owner_type>")
 @login_required
 def export_excel_by_owner(owner_type):
-    # company = коттеджи компании, hotel = номера компании, private = все собственники
     MAP = {
-        "company": ("Коттеджи компании",  "owner_type='Компания'  AND property_type <> 'Номер отеля'"),
-        "hotel":   ("Номера отеля",        "owner_type='Компания'  AND property_type='Номер отеля'"),
-        "private": ("Собственники",        "owner_type='Собственник'"),
+        "company":   ("Коттеджи",       "owner_type='Компания' AND property_type='Коттедж'"),
+        "cottage":   ("Коттеджи",       "owner_type='Компания' AND property_type='Коттедж'"),
+        "hotel":     ("Номера отеля",   "owner_type='Компания' AND property_type='Номер отеля'"),
+        "apartment": ("Квартиры",       "owner_type='Компания' AND property_type='Квартира'"),
+        "employee":  ("Сотрудники",     "owner_type='Компания' AND property_type='Номер для сотрудников'"),
+        "private":   ("Собственники",   "owner_type='Собственник'"),
     }
     if owner_type not in MAP:
         return redirect(url_for("export_excel"))

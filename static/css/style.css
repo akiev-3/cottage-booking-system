@@ -212,7 +212,51 @@ header h1 { font-size: 1.4rem; font-weight: 700; }
 /* ── Main ── */
 main { padding: 32px; max-width: 1300px; margin: 0 auto; }
 
-/* ── Cottages grid ── */
+/* ── Objects list (table) ── */
+.objects-list-wrap {
+  background: var(--card);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.objects-list {
+  width: 100%;
+  min-width: 720px;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+.objects-list th {
+  background: var(--bg);
+  padding: 11px 14px;
+  text-align: left;
+  font-size: 0.76rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+.objects-list td {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+  white-space: nowrap;
+}
+.objects-list tbody tr:last-child td { border-bottom: none; }
+.objects-list tbody tr:hover td { background: #f8fafd; }
+.objects-list .details-cell {
+  white-space: normal;
+  min-width: 180px;
+  max-width: 320px;
+  font-size: 0.85rem;
+  line-height: 1.4;
+}
+.muted-sm { color: var(--muted); font-size: 0.8rem; }
+.row-actions { display: flex; gap: 5px; }
+.row-actions .btn-sm { padding: 5px 9px; }
+
+/* ── Cottages grid (старое, на всякий) ── */
 .cottages-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));

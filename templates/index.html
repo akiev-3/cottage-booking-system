@@ -52,82 +52,58 @@
     <button class="filter-btn" onclick="filterCottages('private', this)">👤 Собственники</button>
   </div>
 
-  <div id="cottages-grid" class="cottages-grid">
-    {% for cottage in cottages %}
-    {% set otype = cottage.owner_type %}
-    {% set ptype = cottage.property_type %}
-    {% set pinfo = ptype_map.get(ptype, ptype_map['Коттедж']) %}
-    <div class="cottage-card" id="card-{{ cottage.id }}"
-         data-owner="{{ 'private' if otype=='Собственник' else 'company' }}"
-         data-ptype="{{ pinfo.key }}">
-      <div class="card-header">
-        <h2>{{ cottage.name }}</h2>
-        <div class="card-actions">
-          <button class="btn btn-sm btn-outline" onclick="editCottage({{ cottage.id }}, '{{ cottage.name|e }}', {{ cottage.capacity or 0 }}, {{ cottage.price_per_day or 0 }}, '{{ cottage.description|e }}', '{{ otype }}', '{{ (cottage.owner_name or '')|e }}', '{{ cottage.contacts|e }}', '{{ ptype }}', '{{ cottage.cottage_size or '' }}', {{ cottage.rooms or 0 }}, '{{ cottage.floor or '' }}')">✏️</button>
-          <button class="btn btn-sm btn-danger" onclick="deleteCottage({{ cottage.id }})">🗑️</button>
-        </div>
-      </div>
-      <div class="card-body">
-        <div class="info-row">
-          <span class="label">🏠 Тип</span>
-          <span class="value"><span class="owner-badge {{ pinfo.badge }}">{{ pinfo.label }}</span></span>
-        </div>
-        {% if otype == 'Собственник' %}
-          {% if cottage.owner_name %}
-          <div class="info-row-stack">
-            <span class="label">👤 Собственник</span>
-            <span class="value-full">{{ cottage.owner_name }}</span>
-          </div>
-          {% endif %}
-          {% if cottage.contacts %}
-          <div class="info-row-stack">
-            <span class="label">📞 Контакты</span>
-            <span class="value-full" style="font-size:0.85rem">{{ cottage.contacts }}</span>
-          </div>
-          {% endif %}
-        {% else %}
-          {% if ptype == 'Коттедж' and cottage.cottage_size %}
-          <div class="info-row">
-            <span class="label">📐 Размер</span>
-            <span class="value">{{ cottage.cottage_size }}</span>
-          </div>
-          {% endif %}
-          {% if ptype != 'Коттедж' and cottage.floor %}
-          <div class="info-row">
-            <span class="label">🛗 Этаж</span>
-            <span class="value">{{ cottage.floor }}</span>
-          </div>
-          {% endif %}
-          <div class="info-row">
-            <span class="label">👥 Вместимость</span>
-            <span class="value">{{ cottage.capacity }} чел.</span>
-          </div>
-          <div class="info-row">
-            <span class="label">🚪 Комнат</span>
-            <span class="value">{{ cottage.rooms or '—' }}</span>
-          </div>
-          <div class="info-row">
-            <span class="label">💰 Цена за сутки</span>
-            <span class="value">${{ "%.0f"|format(cottage.price_per_day or 0) }}</span>
-          </div>
-          <div class="info-row">
-            <span class="label">📅 Броней</span>
-            <span class="value"><span class="count-badge">{{ cottage.bookings_count }}</span></span>
-          </div>
-        {% endif %}
-        {% if cottage.description %}
-        <p class="description">{{ cottage.description }}</p>
-        {% endif %}
-      </div>
-      {% if otype != 'Собственник' %}
-      <div class="card-footer">
-        <a href="/cottages/{{ cottage.id }}/bookings" class="btn btn-primary full-width">📅 Брони</a>
-        <button class="btn btn-success full-width" onclick="openBookingModal({{ cottage.id }}, '{{ cottage.name|e }}', {{ cottage.capacity or 0 }}, {{ cottage.price_per_day or 0 }})">+ Новая бронь</button>
-      </div>
-      {% endif %}
-    </div>
-    {% endfor %}
-
+  <div class="objects-list-wrap">
+    <table class="objects-list" id="cottages-grid">
+      <thead>
+        <tr>
+          <th>Название</th>
+          <th>Тип</th>
+          <th>Детали</th>
+          <th>Вмест.</th>
+          <th>Комнат</th>
+          <th>Цена</th>
+          <th>Броней</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for cottage in cottages %}
+        {% set otype = cottage.owner_type %}
+        {% set ptype = cottage.property_type %}
+        {% set pinfo = ptype_map.get(ptype, ptype_map['Коттедж']) %}
+        {% set is_priv = (otype == 'Собственник') %}
+        <tr class="cottage-card" id="card-{{ cottage.id }}"
+            data-owner="{{ 'private' if is_priv else 'company' }}" data-ptype="{{ pinfo.key }}">
+          <td><strong>{{ cottage.name }}</strong></td>
+          <td><span class="owner-badge {{ pinfo.badge }}">{{ pinfo.label }}</span></td>
+          <td class="details-cell">
+            {% if is_priv %}
+              {% if cottage.owner_name %}👤 {{ cottage.owner_name }}<br>{% endif %}
+              {% if cottage.contacts %}<span class="muted-sm">📞 {{ cottage.contacts }}</span>{% endif %}
+            {% else %}
+              {% if ptype == 'Коттедж' and cottage.cottage_size %}📐 {{ cottage.cottage_size }}{% endif %}
+              {% if ptype != 'Коттедж' and cottage.floor %}🛗 Этаж {{ cottage.floor }}{% endif %}
+              {% if cottage.description %}<br><span class="muted-sm">{{ cottage.description }}</span>{% endif %}
+            {% endif %}
+          </td>
+          <td>{{ (cottage.capacity ~ ' чел.') if not is_priv else '—' }}</td>
+          <td>{{ cottage.rooms if (not is_priv and cottage.rooms) else '—' }}</td>
+          <td>{{ ('$' ~ ('%.0f'|format(cottage.price_per_day or 0))) if not is_priv else '—' }}</td>
+          <td>{% if not is_priv %}<span class="count-badge">{{ cottage.bookings_count }}</span>{% else %}—{% endif %}</td>
+          <td>
+            <div class="row-actions">
+              {% if not is_priv %}
+              <a href="/cottages/{{ cottage.id }}/bookings" class="btn btn-sm btn-primary" title="Брони">📅</a>
+              <button class="btn btn-sm btn-success" title="Новая бронь" onclick="openBookingModal({{ cottage.id }}, '{{ cottage.name|e }}', {{ cottage.capacity or 0 }}, {{ cottage.price_per_day or 0 }})">＋</button>
+              {% endif %}
+              <button class="btn btn-sm btn-outline" title="Изменить" onclick="editCottage({{ cottage.id }}, '{{ cottage.name|e }}', {{ cottage.capacity or 0 }}, {{ cottage.price_per_day or 0 }}, '{{ cottage.description|e }}', '{{ otype }}', '{{ (cottage.owner_name or '')|e }}', '{{ cottage.contacts|e }}', '{{ ptype }}', '{{ cottage.cottage_size or '' }}', {{ cottage.rooms or 0 }}, '{{ cottage.floor or '' }}')">✏️</button>
+              <button class="btn btn-sm btn-danger" title="Удалить" onclick="deleteCottage({{ cottage.id }})">🗑️</button>
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
     {% if not cottages %}
     <div class="empty-state"><p>Объектов пока нет.<br>Нажмите «+ Добавить».</p></div>
     {% endif %}

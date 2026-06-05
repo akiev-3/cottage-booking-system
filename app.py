@@ -348,6 +348,123 @@ def delete_cottage(cottage_id):
     return jsonify({"ok": True})
 
 
+# ── Демо-данные ───────────────────────────────────────────
+
+@app.route("/seed-demo")
+@login_required
+def seed_demo():
+    """Генерирует тестовые брони и заказы услуг для объектов компании.
+    По 5 броней на каждый объект и услуги/заказы для каждого типа."""
+    from datetime import timedelta
+    import random
+
+    conn = get_db(); cur = conn.cursor()
+
+    # ── Демо-услуги для каждого типа объекта (если их нет) ──
+    DEMO_SERVICES = {
+        "Коттедж": [
+            ("Уборка", "Генеральная уборка коттеджа", "шт", 7000),
+            ("Стирка", "Комплект постельного белья", "компл", 1200),
+            ("Сервис", "Доставка дров", "связка", 800),
+        ],
+        "Номер отеля": [
+            ("Уборка", "Уборка номера", "шт", 1500),
+            ("Сервис", "Завтрак в номер", "шт", 900),
+            ("Стирка", "Смена полотенец", "компл", 500),
+        ],
+        "Квартира": [
+            ("Уборка", "Уборка квартиры", "шт", 3000),
+            ("Сервис", "Мытьё окон", "шт", 1500),
+            ("Стирка", "Стирка штор", "кг", 700),
+        ],
+        "Номер для сотрудников": [
+            ("Уборка", "Уборка комнаты", "шт", 1000),
+            ("Стирка", "Смена белья", "компл", 600),
+            ("Сервис", "Мелкий ремонт", "шт", 1500),
+        ],
+    }
+    catalog_by_type = {}
+    for otype, items in DEMO_SERVICES.items():
+        cur.execute("SELECT id, name FROM service_catalog WHERE owner_type=%s", (otype,))
+        existing = {r["name"] for r in cur.fetchall()}
+        for cat, name, unit, price in items:
+            if name not in existing:
+                cur.execute("""
+                    INSERT INTO service_catalog (category, name, unit, price, has_plate, owner_type)
+                    VALUES (%s,%s,%s,%s,%s,%s)
+                """, (cat, name, unit, price, False, otype))
+        cur.execute("SELECT * FROM service_catalog WHERE owner_type=%s", (otype,))
+        catalog_by_type[otype] = [dict(r) for r in cur.fetchall()]
+
+    # ── Объекты компании ──
+    cur.execute("SELECT * FROM cottages WHERE owner_type='Компания' ORDER BY id")
+    objects = [dict(r) for r in cur.fetchall()]
+
+    rate = get_rate(cur)
+    guests_names = ["Азамат", "Нурлан", "Айгерим", "Данияр", "Жанна",
+                    "Тимур", "Алина", "Бекзат", "Мадина", "Ерлан"]
+    nights_variants = [1, 2, 3, 5, 7]
+
+    bookings_added = 0
+    orders_added   = 0
+
+    for obj in objects:
+        # Чистим старые демо-брони этого объекта чтобы не плодить дубли? Нет — просто добавляем без пересечений.
+        # Определяем стартовую дату: после последней существующей брони
+        cur.execute("SELECT MAX(check_out) AS m FROM bookings WHERE cottage_id=%s", (obj["id"],))
+        row = cur.fetchone()
+        cursor_date = (row["m"] if row and row["m"] else date.today())
+        if isinstance(cursor_date, str):
+            cursor_date = datetime.strptime(cursor_date, "%Y-%m-%d").date()
+        cursor_date = max(cursor_date, date.today()) + timedelta(days=2)
+
+        price = obj.get("price_per_day") or 100
+        for i in range(5):
+            nights = nights_variants[i % len(nights_variants)]
+            ci = cursor_date
+            co = ci + timedelta(days=nights)
+            total = round(nights * price)
+            cur.execute("""
+                INSERT INTO bookings (cottage_id, cottage_name, guest_name, guests,
+                    check_in, check_out, nights, discount, total_before_discount,
+                    total, rate, total_som, notes)
+                VALUES (%s,%s,%s,%s, %s,%s,%s, %s,%s,%s,%s,%s,%s)
+            """, (obj["id"], obj["name"], random.choice(guests_names),
+                  max(1, (obj.get("capacity") or 2)), ci, co, nights,
+                  0, total, total, rate, round(total*rate),
+                  f"Демо-бронь #{i+1}"))
+            bookings_added += 1
+            cursor_date = co + timedelta(days=random.randint(1, 3))  # зазор между бронями
+
+        # ── 5 заказов услуг для типа этого объекта ──
+        otype = obj["property_type"]
+        services = catalog_by_type.get(otype, [])
+        if services:
+            for j in range(5):
+                svc = random.choice(services)
+                qty = random.choice([1, 1, 2, 3])
+                sp  = svc["price"]
+                sdate = date.today() + timedelta(days=random.randint(0, 20))
+                cur.execute("""
+                    INSERT INTO service_orders (service_id, service_name, category,
+                        cottage_id, cottage_name, service_date, end_date, quantity,
+                        price, total, plate, notes, object_type)
+                    VALUES (%s,%s,%s,%s,%s, %s,%s,%s,%s,%s,%s,%s,%s)
+                """, (svc["id"], svc["name"], svc["category"], obj["id"], obj["name"],
+                      sdate, None, qty, sp, round(qty*sp), "",
+                      f"Демо-заказ #{j+1}", otype))
+                orders_added += 1
+
+    conn.commit(); cur.close(); conn.close()
+    return jsonify({
+        "ok": True,
+        "objects": len(objects),
+        "bookings_added": bookings_added,
+        "orders_added": orders_added,
+        "message": f"Создано {bookings_added} броней и {orders_added} заказов услуг для {len(objects)} объектов."
+    })
+
+
 # ── Bookings ──────────────────────────────────────────────
 
 @app.route("/bookings", methods=["GET"])

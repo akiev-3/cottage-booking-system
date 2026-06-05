@@ -114,9 +114,10 @@ def init_db():
             owner_type VARCHAR(50)  DEFAULT 'Алма-Ата'
         )
     """)
-    # Миграция
-    cur.execute("ALTER TABLE service_catalog ADD COLUMN IF NOT EXISTS owner_type VARCHAR(50) DEFAULT 'Коттеджи'")
-    cur.execute("UPDATE service_catalog SET owner_type = 'Коттеджи' WHERE owner_type = 'Алма-Ата'")
+    # Миграция: owner_type → канонические типы объектов
+    cur.execute("ALTER TABLE service_catalog ADD COLUMN IF NOT EXISTS owner_type VARCHAR(50) DEFAULT 'Коттедж'")
+    cur.execute("UPDATE service_catalog SET owner_type = 'Коттедж'     WHERE owner_type IN ('Алма-Ата','Коттеджи')")
+    cur.execute("UPDATE service_catalog SET owner_type = 'Номер отеля' WHERE owner_type = 'Номера отеля'")
     # Заполняем дефолтный прайс-лист (только если пустой)
     cur.execute("SELECT COUNT(*) as cnt FROM service_catalog")
     if cur.fetchone()["cnt"] == 0:
@@ -166,10 +167,17 @@ def init_db():
             created_at   TIMESTAMP   DEFAULT NOW()
         )
     """)
-    # Миграция: добавить end_date если таблица уже существовала без неё
+    # Миграция: end_date + object_type (тип объекта на момент заказа)
+    cur.execute("ALTER TABLE service_orders ADD COLUMN IF NOT EXISTS end_date DATE DEFAULT NULL")
+    cur.execute("ALTER TABLE service_orders ADD COLUMN IF NOT EXISTS object_type VARCHAR(50) DEFAULT ''")
+    # Бэкфилл object_type из связанного объекта
     cur.execute("""
-        ALTER TABLE service_orders
-        ADD COLUMN IF NOT EXISTS end_date DATE DEFAULT NULL
+        UPDATE service_orders so SET object_type = CASE
+            WHEN c.owner_type = 'Собственник' THEN 'Собственник'
+            ELSE c.property_type
+        END
+        FROM cottages c
+        WHERE so.cottage_id = c.id AND (so.object_type IS NULL OR so.object_type = '')
     """)
 
     conn.commit()
@@ -458,6 +466,17 @@ CATEGORY_LABELS = {
     "specialist": "🔧 Специалист",
 }
 
+# Канонические типы объектов: значение БД → (ключ, подпись)
+OBJECT_TYPES = [
+    ("Коттедж",               "cottage",   "🏠 Коттеджи"),
+    ("Номер отеля",           "hotel",     "🏨 Номера отеля"),
+    ("Квартира",              "apartment", "🏢 Квартиры"),
+    ("Номер для сотрудников", "employee",  "👷 Сотрудники"),
+    ("Собственник",           "private",   "👤 Собственники"),
+]
+OBJ_KEY = {name: key for name, key, _ in OBJECT_TYPES}      # 'Коттедж' → 'cottage'
+OBJ_LABEL = {name: lbl for name, _, lbl in OBJECT_TYPES}
+
 @app.route("/services")
 @login_required
 def services_page():
@@ -465,17 +484,16 @@ def services_page():
     cur.execute("SELECT * FROM service_catalog ORDER BY owner_type, category, id")
     catalog = [dict(r) for r in cur.fetchall()]
 
-    # Группируем по (owner_type, category) для удобного рендера
+    # Группируем каталог по типу объекта → категории
     from collections import defaultdict
     grouped = defaultdict(lambda: defaultdict(list))
     for item in catalog:
         grouped[item["owner_type"]][item["category"]].append(item)
-    catalog_alma    = dict(grouped.get("Коттеджи",    {}))
-    catalog_private = dict(grouped.get("Собственник",  {}))
-    catalog_hotel   = dict(grouped.get("Номера отеля", {}))
+    # Каталоги по каждому типу
+    catalogs = {key: dict(grouped.get(name, {})) for name, key, _ in OBJECT_TYPES}
 
     cur.execute("""
-        SELECT so.*, c.name as cname
+        SELECT so.*, c.name as cname, c.owner_type as c_owner, c.property_type as c_ptype
         FROM service_orders so
         LEFT JOIN cottages c ON c.id = so.cottage_id
         ORDER BY so.service_date DESC, so.id DESC
@@ -485,13 +503,21 @@ def services_page():
         for f in ("service_date", "end_date"):
             if isinstance(o.get(f), date):
                 o[f] = o[f].isoformat()
+        # Тип объекта для фильтра: object_type или вычислить из объекта
+        ot = o.get("object_type") or ""
+        if not ot:
+            if o.get("c_owner") == "Собственник":
+                ot = "Собственник"
+            elif o.get("c_ptype"):
+                ot = o["c_ptype"]
+        o["object_type"] = ot
+        o["object_key"]  = OBJ_KEY.get(ot, "")
     cur.execute("SELECT * FROM cottages ORDER BY name")
     cottages = [dict(r) for r in cur.fetchall()]
     cur.close(); conn.close()
     return render_template("services.html",
         catalog=catalog, orders=orders,
-        catalog_alma=catalog_alma, catalog_private=catalog_private,
-        catalog_hotel=catalog_hotel,
+        catalogs=catalogs, object_types=OBJECT_TYPES,
         cottages=cottages, categories=CATEGORY_LABELS,
         catalog_json=json.dumps(catalog))
 
@@ -522,7 +548,7 @@ def add_catalog_item():
         VALUES (%s,%s,%s,%s,%s,%s) RETURNING *
     """, (body["category"], body["name"], body.get("unit","шт"),
           float(body["price"]), body.get("has_plate", False),
-          body.get("owner_type","Алма-Ата")))
+          body.get("owner_type","Коттедж")))
     row = dict(cur.fetchone())
     conn.commit(); cur.close(); conn.close()
     return jsonify(row), 201
@@ -535,6 +561,71 @@ def delete_catalog_item(item_id):
     cur.execute("DELETE FROM service_catalog WHERE id=%s", (item_id,))
     conn.commit(); cur.close(); conn.close()
     return jsonify({"ok": True})
+
+
+@app.route("/service-catalog/import", methods=["POST"])
+@login_required
+def import_catalog():
+    """Импорт услуг из Excel/CSV для конкретного типа объекта.
+    Ожидаемые колонки: Категория | Название | Единица | Цена  (первая строка — заголовки)."""
+    owner_type = request.form.get("owner_type", "Коттедж")
+    f = request.files.get("file")
+    if not f or not f.filename:
+        return jsonify({"error": "Файл не выбран"}), 400
+
+    rows = []
+    name = f.filename.lower()
+    try:
+        if name.endswith(".csv"):
+            text = f.read().decode("utf-8-sig")
+            # авто-определение разделителя ; или ,
+            delim = ";" if text.count(";") >= text.count(",") else ","
+            reader = csv.reader(io.StringIO(text), delimiter=delim)
+            rows = list(reader)
+        elif name.endswith((".xlsx", ".xlsm")):
+            from openpyxl import load_workbook
+            wb = load_workbook(f, data_only=True)
+            ws = wb.active
+            rows = [[c for c in r] for r in ws.iter_rows(values_only=True)]
+        else:
+            return jsonify({"error": "Поддерживаются только .xlsx и .csv"}), 400
+    except Exception as e:
+        return jsonify({"error": f"Не удалось прочитать файл: {e}"}), 400
+
+    if not rows:
+        return jsonify({"error": "Файл пустой"}), 400
+
+    # Пропускаем строку-заголовок, если в ней нет числовой цены
+    def _is_header(r):
+        try:
+            float(str(r[3]).replace(" ", "").replace(",", ".")); return False
+        except Exception:
+            return True
+
+    data_rows = rows[1:] if (len(rows[0]) >= 4 and _is_header(rows[0])) else rows
+
+    conn = get_db(); cur = conn.cursor()
+    added = 0
+    for r in data_rows:
+        if not r or len(r) < 4:
+            continue
+        category = str(r[0] or "").strip()
+        sname    = str(r[1] or "").strip()
+        unit     = str(r[2] or "шт").strip() or "шт"
+        price_s  = str(r[3] or "").replace(" ", "").replace(",", ".")
+        if not sname or not category:
+            continue
+        try:
+            price = float(price_s)
+        except Exception:
+            continue
+        cur.execute("""
+            INSERT INTO service_catalog (category, name, unit, price, has_plate, owner_type)
+            VALUES (%s,%s,%s,%s,%s,%s)
+        """, (category, sname, unit, price, False, owner_type))
+        added += 1
+    conn.commit(); cur.close(); conn.close()
+    return jsonify({"ok": True, "added": added})
 
 
 @app.route("/service-orders", methods=["POST"])
@@ -559,10 +650,14 @@ def create_service_order():
 
     cottage_id   = body.get("cottage_id") or None
     cottage_name = ""
+    object_type  = body.get("object_type", "")   # тип объекта из формы
     if cottage_id:
-        cur.execute("SELECT name FROM cottages WHERE id=%s", (int(cottage_id),))
+        cur.execute("SELECT name, owner_type, property_type FROM cottages WHERE id=%s", (int(cottage_id),))
         c = cur.fetchone()
-        cottage_name = c["name"] if c else ""
+        if c:
+            cottage_name = c["name"]
+            if not object_type:
+                object_type = "Собственник" if c["owner_type"] == "Собственник" else c["property_type"]
 
     price    = float(body.get("price") or svc["price"])
     end_date = body.get("end_date") or None
@@ -584,12 +679,12 @@ def create_service_order():
     cur.execute("""
         INSERT INTO service_orders
             (service_id, service_name, category, cottage_id, cottage_name,
-             service_date, end_date, quantity, price, total, plate, notes)
-        VALUES (%s,%s,%s,%s,%s, %s,%s,%s,%s,%s,%s,%s) RETURNING *
+             service_date, end_date, quantity, price, total, plate, notes, object_type)
+        VALUES (%s,%s,%s,%s,%s, %s,%s,%s,%s,%s,%s,%s,%s) RETURNING *
     """, (svc["id"], service_name, svc["category"],
           cottage_id, cottage_name,
           body["service_date"], end_date, qty, price, total,
-          body.get("plate",""), body.get("notes","")))
+          body.get("plate",""), body.get("notes",""), object_type))
     order = dict(cur.fetchone())
     conn.commit(); cur.close(); conn.close()
     for f in ("service_date", "end_date"):
@@ -666,29 +761,21 @@ def _build_services_excel(orders, sheet_title):
     return wb
 
 
-def _fetch_service_orders(cur, owner_type=None):
-    if owner_type:
+def _fetch_service_orders(cur, object_type=None):
+    """object_type — каноническое название типа ('Коттедж', 'Номер отеля', ...).
+    Фильтрует по сохранённому object_type, а для старых записей — по типу связанного объекта."""
+    if object_type:
         cur.execute("""
-            SELECT so.*, c.owner_type as c_owner
+            SELECT so.*
             FROM service_orders so
             LEFT JOIN cottages c ON c.id = so.cottage_id
-            WHERE c.owner_type = %s OR (so.cottage_id IS NULL AND %s IS NOT NULL)
+            WHERE COALESCE(NULLIF(so.object_type, ''),
+                           CASE WHEN c.owner_type = 'Собственник' THEN 'Собственник'
+                                ELSE c.property_type END) = %s
             ORDER BY so.service_date, so.id
-        """, (owner_type, None))
-        # Фильтруем: заказы у коттеджей нужного типа + заказы без коттеджа не включаем
-        cur.execute("""
-            SELECT so.*
-            FROM service_orders so
-            JOIN cottages c ON c.id = so.cottage_id
-            WHERE c.owner_type = %s
-            ORDER BY so.service_date, so.id
-        """, (owner_type,))
+        """, (object_type,))
     else:
-        cur.execute("""
-            SELECT so.*
-            FROM service_orders so
-            ORDER BY so.service_date, so.id
-        """)
+        cur.execute("SELECT * FROM service_orders ORDER BY service_date, id")
     orders = [dict(r) for r in cur.fetchall()]
     for o in orders:
         for f in ("service_date", "end_date"):
@@ -711,46 +798,23 @@ def export_excel_services():
         download_name=f"uslugi_vse_{date.today()}.xlsx")
 
 
-@app.route("/export/excel/services/cottages")
+@app.route("/export/excel/services/<obj_key>")
 @login_required
-def export_excel_services_cottages():
+def export_excel_services_by_type(obj_key):
+    """Экспорт услуг по типу объекта: cottage / hotel / apartment / employee / private."""
+    KEY_TO_NAME = {key: name for name, key, _ in OBJECT_TYPES}
+    obj_name = KEY_TO_NAME.get(obj_key)
+    if not obj_name:
+        return redirect(url_for("export_excel_services"))
     conn = get_db(); cur = conn.cursor()
-    orders = _fetch_service_orders(cur, owner_type="Коттеджи")
+    orders = _fetch_service_orders(cur, object_type=obj_name)
     cur.close(); conn.close()
-    wb  = _build_services_excel(orders, "Услуги — Коттеджи")
+    wb  = _build_services_excel(orders, f"Услуги — {obj_name}")
     buf = io.BytesIO(); wb.save(buf); buf.seek(0)
     return send_file(buf,
         mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         as_attachment=True,
-        download_name=f"uslugi_cottages_{date.today()}.xlsx")
-
-
-@app.route("/export/excel/services/hotel")
-@login_required
-def export_excel_services_hotel():
-    conn = get_db(); cur = conn.cursor()
-    orders = _fetch_service_orders(cur, owner_type="Номера отеля")
-    cur.close(); conn.close()
-    wb  = _build_services_excel(orders, "Услуги — Номера отеля")
-    buf = io.BytesIO(); wb.save(buf); buf.seek(0)
-    return send_file(buf,
-        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        as_attachment=True,
-        download_name=f"uslugi_hotel_{date.today()}.xlsx")
-
-
-@app.route("/export/excel/services/private")
-@login_required
-def export_excel_services_private():
-    conn = get_db(); cur = conn.cursor()
-    orders = _fetch_service_orders(cur, owner_type="Собственник")
-    cur.close(); conn.close()
-    wb  = _build_services_excel(orders, "Услуги — Собственники")
-    buf = io.BytesIO(); wb.save(buf); buf.seek(0)
-    return send_file(buf,
-        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        as_attachment=True,
-        download_name=f"uslugi_sobstvenniki_{date.today()}.xlsx")
+        download_name=f"uslugi_{obj_key}_{date.today()}.xlsx")
 
 
 # ── Excel helpers ─────────────────────────────────────────

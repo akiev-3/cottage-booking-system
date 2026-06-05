@@ -35,6 +35,7 @@
   .inline-input:focus { outline:none;border-color:var(--primary);background:#fff; }
   .save-row-btn { display:none; }
   .catalog-table tr:hover .save-row-btn { display:inline-flex; }
+  .catalog-actions { display:flex; gap:8px; flex-wrap:wrap; margin-top:8px; }
 
   /* Таблица заказов — авто-ширина + горизонтальный скролл */
   .orders-table-wrap { background:var(--card);border-radius:var(--radius);box-shadow:var(--shadow);overflow-x:auto; -webkit-overflow-scrolling:touch; }
@@ -60,10 +61,10 @@
   <div class="header-right">
     <button class="btn btn-excel" onclick="toggleSvcExcel(event)">⬇️ Excel ▾</button>
     <div id="svc-excel-menu" class="dropdown-menu" style="display:none">
-      <a href="/export/excel/services"           class="dropdown-item">📊 Все услуги</a>
-      <a href="/export/excel/services/cottages" class="dropdown-item">🏠 Коттеджи</a>
-      <a href="/export/excel/services/private"  class="dropdown-item">👤 Собственники</a>
-      <a href="/export/excel/services/hotel"    class="dropdown-item">🏨 Номера отеля</a>
+      <a href="/export/excel/services" class="dropdown-item">📊 Все услуги</a>
+      {% for name, key, label in object_types %}
+      <a href="/export/excel/services/{{ key }}" class="dropdown-item">{{ label }}</a>
+      {% endfor %}
     </div>
     <button class="btn btn-success" onclick="openModal('modal-order')">+ Новый заказ</button>
     <a href="/logout" class="btn btn-outline">Выйти</a>
@@ -78,25 +79,33 @@
 
   <!-- ── Заказы ── -->
   <div id="tab-orders" class="tab-content active">
+    <!-- Фильтр заказов по типу объекта -->
+    <div class="owner-filter">
+      <button class="filter-btn active" onclick="filterOrders('all', this)">Все</button>
+      {% for name, key, label in object_types %}
+      <button class="filter-btn" onclick="filterOrders('{{ key }}', this)">{{ label }}</button>
+      {% endfor %}
+    </div>
     {% if orders %}
     <div class="orders-table-wrap">
       <table class="orders-table">
         <thead>
           <tr>
             <th>#</th><th>Дата начала</th><th>Дата оконч.</th>
-            <th>Услуга</th><th>Категория</th><th>Коттедж</th>
+            <th>Услуга</th><th>Категория</th><th>Тип объекта</th><th>Объект</th>
             <th>Кол-во</th><th>Цена</th><th>Итого</th>
             <th>Гос. номер</th><th>Заметки</th><th></th>
           </tr>
         </thead>
         <tbody id="orders-body">
           {% for o in orders %}
-          <tr id="orow-{{ o.id }}">
+          <tr id="orow-{{ o.id }}" class="order-row" data-type="{{ o.object_key }}">
             <td>{{ loop.index }}</td>
             <td>{{ o.service_date|fmtdate }}</td>
             <td>{% if o.end_date %}{{ o.end_date|fmtdate }}{% else %}—{% endif %}</td>
             <td><strong>{{ o.service_name }}</strong></td>
             <td><span class="category-badge cat-custom">{{ o.category }}</span></td>
+            <td>{{ o.object_type or '—' }}</td>
             <td>{{ o.cottage_name or '—' }}</td>
             <td>{{ o.quantity }}</td>
             <td>{{ "%.0f"|format(o.price) }} сом</td>
@@ -109,6 +118,7 @@
         </tbody>
       </table>
     </div>
+    <div id="orders-empty-filter" class="empty-state" style="display:none"><p>Нет заказов этого типа.</p></div>
     {% else %}
     <div class="empty-state"><p>Заказов пока нет.<br>Нажмите «+ Новый заказ».</p></div>
     {% endif %}
@@ -117,13 +127,14 @@
   <!-- ── Прайс-лист ── -->
   <div id="tab-catalog" class="tab-content">
     <div class="owner-tabs">
-      <button class="owner-tab active-alma" id="ptab-alma"    onclick="switchCatalogTab('alma')">🏠 Коттеджи</button>
-      <button class="owner-tab"             id="ptab-private" onclick="switchCatalogTab('private')">👤 Собственники</button>
-      <button class="owner-tab"             id="ptab-hotel"   onclick="switchCatalogTab('hotel')">🏨 Номера отеля</button>
+      {% for name, key, label in object_types %}
+      <button class="owner-tab {{ 'active-alma' if loop.first else '' }}" id="ptab-{{ key }}"
+              onclick="switchCatalogTab('{{ key }}')">{{ label }}</button>
+      {% endfor %}
     </div>
 
-    {# Макрос рендера одной секции каталога #}
-    {% macro render_catalog(grouped, owner_key) %}
+    {# Макрос рендера секции каталога #}
+    {% macro render_catalog(grouped, owner_name) %}
       {% if grouped %}
         {% for cat, items in grouped.items() %}
         <div class="catalog-section">
@@ -137,7 +148,7 @@
                 <td style="width:80px"><input class="inline-input" id="cunit-{{ item.id }}" value="{{ item.unit }}" style="width:70px" onchange="markChanged({{ item.id }})"></td>
                 <td style="width:130px"><input class="inline-input" id="cprice-{{ item.id }}" type="number" value="{{ item.price }}" style="width:110px" onchange="markChanged({{ item.id }})"></td>
                 <td style="width:140px">
-                  <button id="csave-{{ item.id }}" class="btn btn-sm btn-primary save-row-btn" onclick="saveCatalogItem({{ item.id }}, '{{ owner_key }}')">Сохранить</button>
+                  <button id="csave-{{ item.id }}" class="btn btn-sm btn-primary save-row-btn" onclick="saveCatalogItem({{ item.id }}, '{{ owner_name }}')">Сохранить</button>
                   <button class="btn btn-sm btn-danger" onclick="deleteCatalogItem({{ item.id }})">🗑️</button>
                 </td>
               </tr>
@@ -149,18 +160,17 @@
       {% else %}
         <p style="color:var(--muted);margin-bottom:16px">Услуг пока нет.</p>
       {% endif %}
-      <button class="btn btn-outline" onclick="openAddService('{{ owner_key }}')">+ Добавить услугу</button>
+      <div class="catalog-actions">
+        <button class="btn btn-outline" onclick="openAddService('{{ owner_name }}')">+ Добавить услугу</button>
+        <button class="btn btn-outline" onclick="openImport('{{ owner_name }}')">⬆️ Импорт из файла</button>
+      </div>
     {% endmacro %}
 
-    <div id="pcatalog-alma">
-      {{ render_catalog(catalog_alma, 'Коттеджи') }}
+    {% for name, key, label in object_types %}
+    <div id="pcatalog-{{ key }}" {% if not loop.first %}style="display:none"{% endif %}>
+      {{ render_catalog(catalogs[key], name) }}
     </div>
-    <div id="pcatalog-private" style="display:none">
-      {{ render_catalog(catalog_private, 'Собственник') }}
-    </div>
-    <div id="pcatalog-hotel" style="display:none">
-      {{ render_catalog(catalog_hotel, 'Номера отеля') }}
-    </div>
+    {% endfor %}
   </div>
 </main>
 
@@ -173,23 +183,14 @@
     </div>
     <form id="form-order" onsubmit="submitOrder(event)">
 
-      <!-- Шаг 1: выбор типа -->
+      <!-- Шаг 1: выбор типа объекта -->
       <div class="form-group">
-        <label>Тип коттеджа *</label>
-        <div class="owner-toggle">
-          <label class="owner-option">
-            <input type="radio" name="svc_owner" value="Коттеджи" checked onchange="onOwnerTypeChange()">
-            <span class="owner-btn owner-btn-alma">🏠 Коттеджи</span>
-          </label>
-          <label class="owner-option">
-            <input type="radio" name="svc_owner" value="Номера отеля" onchange="onOwnerTypeChange()">
-            <span class="owner-btn owner-btn-hotel">🏨 Отель</span>
-          </label>
-          <label class="owner-option">
-            <input type="radio" name="svc_owner" value="Собственник" onchange="onOwnerTypeChange()">
-            <span class="owner-btn owner-btn-private">👤 Собственник</span>
-          </label>
-        </div>
+        <label>Тип объекта *</label>
+        <select id="order-objtype" class="sel" onchange="onOwnerTypeChange()">
+          {% for name, key, label in object_types %}
+          <option value="{{ name }}">{{ label }}</option>
+          {% endfor %}
+        </select>
       </div>
 
       <!-- Выбор услуги из прайса -->
@@ -296,6 +297,33 @@
   </div>
 </div>
 
+<!-- Modal: Импорт услуг -->
+<div id="modal-import" class="modal-overlay" onclick="closeModalOverlay(event,'modal-import')">
+  <div class="modal">
+    <div class="modal-header">
+      <h3>Импорт услуг — <span id="import-owner-label"></span></h3>
+      <button class="close-btn" onclick="closeModal('modal-import')">✕</button>
+    </div>
+    <form id="form-import" onsubmit="submitImport(event)">
+      <input type="hidden" id="import-owner">
+      <div class="form-group">
+        <label>Файл Excel (.xlsx) или CSV *</label>
+        <input type="file" id="import-file" accept=".xlsx,.xlsm,.csv" required>
+      </div>
+      <div class="busy-hint" style="background:#eff6ff;border-color:#bfdbfe;color:#1e40af">
+        📋 Формат: 4 колонки в порядке —<br>
+        <b>Категория | Название | Единица | Цена</b><br>
+        Первая строка — заголовки (необязательно). Пример строки:<br>
+        <code>Уборка; Мытьё окон; шт; 5000</code>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline" onclick="closeModal('modal-import')">Отмена</button>
+        <button type="submit" class="btn btn-primary">Загрузить</button>
+      </div>
+    </form>
+  </div>
+</div>
+
 <div id="toast" class="toast"></div>
 
 <script>
@@ -311,14 +339,30 @@ function switchTab(name) {
   localStorage.setItem('svcTab', name);
 }
 
+const CAT_KEYS = ['cottage','hotel','apartment','employee','private'];
 function switchCatalogTab(type) {
-  ['alma','private','hotel'].forEach(t => {
-    document.getElementById('pcatalog-'+t).style.display = t===type ? '' : 'none';
+  CAT_KEYS.forEach(t => {
+    const pane = document.getElementById('pcatalog-'+t);
+    const tab  = document.getElementById('ptab-'+t);
+    if (pane) pane.style.display = (t===type ? '' : 'none');
+    if (tab)  tab.className = 'owner-tab' + (t===type ? (t==='private' ? ' active-private' : ' active-alma') : '');
   });
-  document.getElementById('ptab-alma').className    = 'owner-tab' + (type==='alma'    ? ' active-alma'    : '');
-  document.getElementById('ptab-private').className = 'owner-tab' + (type==='private' ? ' active-private' : '');
-  document.getElementById('ptab-hotel').className   = 'owner-tab' + (type==='hotel'   ? ' active-alma'    : '');
   localStorage.setItem('svcCatTab', type);
+}
+
+// ── Фильтр заказов по типу объекта ──
+function filterOrders(type, btn) {
+  document.querySelectorAll('#tab-orders .filter-btn').forEach(b => b.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+  let visible = 0;
+  document.querySelectorAll('.order-row').forEach(row => {
+    const show = (type === 'all') || row.dataset.type === type;
+    row.style.display = show ? '' : 'none';
+    if (show) visible++;
+  });
+  const empty = document.getElementById('orders-empty-filter');
+  if (empty) empty.style.display = (visible === 0) ? 'block' : 'none';
+  localStorage.setItem('svcOrdFilter', type);
 }
 
 // ── Modal ────────────────────────────────────────────────
@@ -335,14 +379,15 @@ function showToast(msg, type='') {
 let isParking = false;
 
 function getOwnerType() {
-  return document.querySelector('input[name="svc_owner"]:checked')?.value || 'Алма-Ата';
+  return document.getElementById('order-objtype').value || 'Коттедж';
 }
 
 function onOwnerTypeChange() {
-  const ownerType = getOwnerType();
+  const objType = getOwnerType();  // каноническое название: 'Коттедж', 'Номер отеля', ...
+  // Услуги прайса этого типа
   const sel = document.getElementById('order-service');
   sel.innerHTML = '<option value="">— выбрать из прайса —</option>';
-  CATALOG.filter(s => s.owner_type === ownerType).forEach(s => {
+  CATALOG.filter(s => s.owner_type === objType).forEach(s => {
     const o = document.createElement('option');
     o.value = s.id;
     o.dataset.price = s.price; o.dataset.unit = s.unit;
@@ -350,16 +395,12 @@ function onOwnerTypeChange() {
     o.textContent = `${s.name} (${Math.round(s.price)} сом/${s.unit})`;
     sel.appendChild(o);
   });
-  // Фильтруем коттеджи: Коттеджи/Номера отеля → owner_type='Компания' + property_type
-  //                       Собственник → owner_type='Собственник'
+  // Объекты этого типа
   const csel = document.getElementById('order-cottage');
   csel.innerHTML = '<option value="">— не указывать —</option>';
   COTTAGES.filter(c => {
-    if (ownerType === 'Собственник')  return c.owner_type === 'Собственник';
-    if (ownerType === 'Номера отеля') return c.owner_type === 'Компания' && c.property_type === 'Номер отеля';
-    // 'Коттеджи' — все объекты компании, кроме номеров отеля (коттеджи, квартиры, сотрудники)
-    if (ownerType === 'Коттеджи')     return c.owner_type === 'Компания' && c.property_type !== 'Номер отеля';
-    return true;
+    if (objType === 'Собственник') return c.owner_type === 'Собственник';
+    return c.owner_type === 'Компания' && c.property_type === objType;
   }).forEach(c => {
     const o = document.createElement('option');
     o.value = c.id; o.textContent = c.name;
@@ -418,6 +459,7 @@ async function submitOrder(e) {
     service_date: document.getElementById('order-date').value,
     end_date:     document.getElementById('order-end-date').value || null,
     cottage_id:   document.getElementById('order-cottage').value || null,
+    object_type:  getOwnerType(),
     quantity:     document.getElementById('order-qty').value,
     price:        document.getElementById('order-price').value,
     plate:        document.getElementById('order-plate').value.toUpperCase(),
@@ -471,15 +513,16 @@ async function deleteCatalogItem(id) {
   showToast('Услуга удалена');
 }
 
-const OWNER_LABELS = {'Коттеджи':'🏠 Коттеджи','Собственник':'👤 Собственник','Номера отеля':'🏨 Номера отеля'};
-const OWNER_TO_TAB = {'Коттеджи':'alma','Собственник':'private','Номера отеля':'hotel'};
-function openAddService(ownerType) {
+// Каноническое имя типа → ключ вкладки
+const NAME_TO_KEY = {'Коттедж':'cottage','Номер отеля':'hotel','Квартира':'apartment','Номер для сотрудников':'employee','Собственник':'private'};
+const NAME_LABELS = {'Коттедж':'🏠 Коттеджи','Номер отеля':'🏨 Номера отеля','Квартира':'🏢 Квартиры','Номер для сотрудников':'👷 Сотрудники','Собственник':'👤 Собственники'};
+
+function openAddService(ownerName) {
   document.getElementById('form-add-service').reset();
-  document.getElementById('new-svc-owner').value = ownerType;
-  document.getElementById('add-svc-owner-label').textContent = OWNER_LABELS[ownerType] || ownerType;
-  // запоминаем вкладку, чтобы после перезагрузки остаться здесь
+  document.getElementById('new-svc-owner').value = ownerName;
+  document.getElementById('add-svc-owner-label').textContent = NAME_LABELS[ownerName] || ownerName;
   localStorage.setItem('svcTab', 'catalog');
-  localStorage.setItem('svcCatTab', OWNER_TO_TAB[ownerType] || 'alma');
+  localStorage.setItem('svcCatTab', NAME_TO_KEY[ownerName] || 'cottage');
   openModal('modal-add-service');
 }
 
@@ -499,6 +542,31 @@ async function submitAddService(e) {
   setTimeout(()=>location.reload(),600);
 }
 
+// ── Импорт услуг ──
+function openImport(ownerName) {
+  document.getElementById('form-import').reset();
+  document.getElementById('import-owner').value = ownerName;
+  document.getElementById('import-owner-label').textContent = NAME_LABELS[ownerName] || ownerName;
+  localStorage.setItem('svcTab', 'catalog');
+  localStorage.setItem('svcCatTab', NAME_TO_KEY[ownerName] || 'cottage');
+  openModal('modal-import');
+}
+
+async function submitImport(e) {
+  e.preventDefault();
+  const file = document.getElementById('import-file').files[0];
+  if (!file) { showToast('Выберите файл', 'error'); return; }
+  const fd = new FormData();
+  fd.append('file', file);
+  fd.append('owner_type', document.getElementById('import-owner').value);
+  const res = await fetch('/service-catalog/import', { method:'POST', body: fd });
+  const data = await res.json();
+  if (!res.ok) { showToast(data.error || 'Ошибка импорта', 'error'); return; }
+  showToast(`Импортировано услуг: ${data.added}`, 'success');
+  closeModal('modal-import');
+  setTimeout(()=>location.reload(), 700);
+}
+
 // Excel дропдаун
 function toggleSvcExcel(e) {
   e.stopPropagation();
@@ -514,12 +582,16 @@ document.addEventListener('click', () => {
 document.getElementById('order-date').value = new Date().toISOString().slice(0,10);
 onOwnerTypeChange();
 
-// Восстановление активных вкладок после перезагрузки
+// Восстановление активных вкладок и фильтров после перезагрузки
 (function restoreTabs() {
-  const tab = localStorage.getItem('svcTab') || 'orders';
-  switchTab(tab);
-  const catTab = localStorage.getItem('svcCatTab') || 'alma';
-  switchCatalogTab(catTab);
+  switchTab(localStorage.getItem('svcTab') || 'orders');
+  switchCatalogTab(localStorage.getItem('svcCatTab') || 'cottage');
+  // Восстановить фильтр заказов
+  const ordFilter = localStorage.getItem('svcOrdFilter') || 'all';
+  const order = ['all','cottage','hotel','apartment','employee','private'];
+  const btns  = document.querySelectorAll('#tab-orders .filter-btn');
+  const idx   = order.indexOf(ordFilter);
+  if (idx >= 0 && btns[idx]) filterOrders(ordFilter, btns[idx]);
 })();
 </script>
 </body>

@@ -5,11 +5,14 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>{{ cottage.name }} — Брони</title>
 <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
 <link rel="manifest" href="/static/manifest.json">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="Коттеджи">
 <meta name="theme-color" content="#4f6ef7">
+<script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+<script src="https://npmcdn.com/flatpickr/dist/l10n/ru.js"></script>
 </head>
 <body>
 
@@ -100,13 +103,14 @@
       <div class="form-row">
         <div class="form-group">
           <label>Дата заезда *</label>
-          <input type="date" id="booking-checkin" required onchange="calcTotal()">
+          <input type="text" id="booking-checkin" required placeholder="выберите дату" readonly>
         </div>
         <div class="form-group">
           <label>Дата выезда *</label>
-          <input type="date" id="booking-checkout" required onchange="calcTotal()">
+          <input type="text" id="booking-checkout" required placeholder="выберите дату" readonly>
         </div>
       </div>
+      <div id="booking-busy-hint" class="busy-hint" style="display:none"></div>
       <div class="form-row">
         <div class="form-group">
           <label>Количество гостей *</label>
@@ -149,10 +153,11 @@
 <div id="toast" class="toast"></div>
 
 <script>
-  const COTTAGE_ID   = {{ cottage.id }};
+  const COTTAGE_ID    = {{ cottage.id }};
   const PRICE_PER_DAY = {{ cottage.price_per_day }};
-  const MAX_GUESTS   = {{ cottage.capacity }};
-  const RATE         = {{ rate }};
+  const MAX_GUESTS    = {{ cottage.capacity }};
+  const RATE          = {{ rate }};
+  const BOOKED_RANGES = {{ booked_ranges|tojson }};
 </script>
 <script src="{{ url_for('static', filename='js/cottage.js') }}"></script>
 </body>

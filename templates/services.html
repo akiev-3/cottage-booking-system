@@ -36,25 +36,14 @@
   .save-row-btn { display:none; }
   .catalog-table tr:hover .save-row-btn { display:inline-flex; }
 
-  /* Таблица заказов */
-  .orders-table-wrap { background:var(--card);border-radius:var(--radius);box-shadow:var(--shadow);overflow-x:auto; }
-  .orders-table { width:100%;border-collapse:collapse;font-size:0.88rem;table-layout:fixed; }
-  .orders-table th { background:var(--bg);padding:10px 14px;text-align:left;font-size:0.78rem;text-transform:uppercase;letter-spacing:0.04em;color:var(--muted);border-bottom:1px solid var(--border);white-space:nowrap;overflow:hidden; }
-  .orders-table td { padding:11px 14px;border-bottom:1px solid var(--border);vertical-align:middle;white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
+  /* Таблица заказов — авто-ширина + горизонтальный скролл */
+  .orders-table-wrap { background:var(--card);border-radius:var(--radius);box-shadow:var(--shadow);overflow-x:auto; -webkit-overflow-scrolling:touch; }
+  .orders-table { width:max-content;min-width:100%;border-collapse:collapse;font-size:0.88rem; }
+  .orders-table th { background:var(--bg);padding:10px 14px;text-align:left;font-size:0.78rem;text-transform:uppercase;letter-spacing:0.04em;color:var(--muted);border-bottom:1px solid var(--border);white-space:nowrap; }
+  .orders-table td { padding:11px 14px;border-bottom:1px solid var(--border);vertical-align:middle;white-space:nowrap; }
   .orders-table tr:last-child td { border-bottom:none; }
   .orders-table tr:hover td { background:#f8fafd; }
-  .orders-table th:nth-child(1)  { width:46px;  }
-  .orders-table th:nth-child(2)  { width:100px; }
-  .orders-table th:nth-child(3)  { width:110px; }
-  .orders-table th:nth-child(4)  { width: 34%;  }
-  .orders-table th:nth-child(5)  { width:110px; }
-  .orders-table th:nth-child(6)  { width: 14%;  }
-  .orders-table th:nth-child(7)  { width:60px;  }
-  .orders-table th:nth-child(8)  { width:90px;  }
-  .orders-table th:nth-child(9)  { width:100px; }
-  .orders-table th:nth-child(10) { width:110px; }
-  .orders-table th:nth-child(11) { width: 12%;  }
-  .orders-table th:last-child    { width:46px;  }
+  .orders-table td.notes-col { white-space:normal;min-width:120px;max-width:220px;font-size:0.82rem;color:var(--muted); }
 
   .category-badge { display:inline-block;padding:2px 8px;border-radius:20px;font-size:0.75rem;font-weight:600; }
   .cat-custom     { background:#f1f5f9;color:#475569; }
@@ -113,7 +102,7 @@
             <td>{{ "%.0f"|format(o.price) }} сом</td>
             <td><strong>{{ "%.0f"|format(o.total) }} сом</strong></td>
             <td>{% if o.plate %}<span class="plate-badge">{{ o.plate }}</span>{% else %}—{% endif %}</td>
-            <td style="max-width:140px;color:var(--muted);font-size:0.82rem">{{ o.notes }}</td>
+            <td class="notes-col">{{ o.notes }}</td>
             <td><button class="btn btn-sm btn-danger" onclick="deleteOrder({{ o.id }})">🗑️</button></td>
           </tr>
           {% endfor %}
@@ -314,11 +303,12 @@
 const CATALOG  = {{ catalog_json|safe }};
 const COTTAGES = {{ cottages|tojson }};
 
-// ── Вкладки ─────────────────────────────────────────────
+// ── Вкладки (с сохранением в localStorage) ─────────────
 function switchTab(name) {
   document.querySelectorAll('.tab-btn').forEach((b,i) => b.classList.toggle('active', ['orders','catalog'][i]===name));
   document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
   document.getElementById('tab-'+name).classList.add('active');
+  localStorage.setItem('svcTab', name);
 }
 
 function switchCatalogTab(type) {
@@ -328,6 +318,7 @@ function switchCatalogTab(type) {
   document.getElementById('ptab-alma').className    = 'owner-tab' + (type==='alma'    ? ' active-alma'    : '');
   document.getElementById('ptab-private').className = 'owner-tab' + (type==='private' ? ' active-private' : '');
   document.getElementById('ptab-hotel').className   = 'owner-tab' + (type==='hotel'   ? ' active-alma'    : '');
+  localStorage.setItem('svcCatTab', type);
 }
 
 // ── Modal ────────────────────────────────────────────────
@@ -364,9 +355,10 @@ function onOwnerTypeChange() {
   const csel = document.getElementById('order-cottage');
   csel.innerHTML = '<option value="">— не указывать —</option>';
   COTTAGES.filter(c => {
-    if (ownerType === 'Собственник') return c.owner_type === 'Собственник';
-    if (ownerType === 'Коттеджи')    return c.owner_type === 'Компания' && c.property_type === 'Коттедж';
+    if (ownerType === 'Собственник')  return c.owner_type === 'Собственник';
     if (ownerType === 'Номера отеля') return c.owner_type === 'Компания' && c.property_type === 'Номер отеля';
+    // 'Коттеджи' — все объекты компании, кроме номеров отеля (коттеджи, квартиры, сотрудники)
+    if (ownerType === 'Коттеджи')     return c.owner_type === 'Компания' && c.property_type !== 'Номер отеля';
     return true;
   }).forEach(c => {
     const o = document.createElement('option');
@@ -478,13 +470,11 @@ async function deleteCatalogItem(id) {
   showToast('Услуга удалена');
 }
 
-let _addSvcOwner = 'Алма-Ата';
+const OWNER_LABELS = {'Коттеджи':'🏠 Коттеджи','Собственник':'👤 Собственник','Номера отеля':'🏨 Номера отеля'};
 function openAddService(ownerType) {
-  _addSvcOwner = ownerType;
-  document.getElementById('new-svc-owner').value = ownerType;
-  document.getElementById('add-svc-owner-label').textContent = ownerType === 'Алма-Ата' ? '🏢 Алма-Ата' : '👤 Собственник';
   document.getElementById('form-add-service').reset();
   document.getElementById('new-svc-owner').value = ownerType;
+  document.getElementById('add-svc-owner-label').textContent = OWNER_LABELS[ownerType] || ownerType;
   openModal('modal-add-service');
 }
 
@@ -518,6 +508,14 @@ document.addEventListener('click', () => {
 // Инициализация
 document.getElementById('order-date').value = new Date().toISOString().slice(0,10);
 onOwnerTypeChange();
+
+// Восстановление активных вкладок после перезагрузки
+(function restoreTabs() {
+  const tab = localStorage.getItem('svcTab') || 'orders';
+  switchTab(tab);
+  const catTab = localStorage.getItem('svcCatTab') || 'alma';
+  switchCatalogTab(catTab);
+})();
 </script>
 </body>
 </html>

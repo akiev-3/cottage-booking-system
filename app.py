@@ -236,6 +236,11 @@ def index():
     cur  = conn.cursor()
     cur.execute("SELECT * FROM cottages ORDER BY id")
     cottages = [dict(r) for r in cur.fetchall()]
+    # Счётчик броней по каждому объекту
+    cur.execute("SELECT cottage_id, COUNT(*) AS cnt FROM bookings GROUP BY cottage_id")
+    counts = {r["cottage_id"]: r["cnt"] for r in cur.fetchall()}
+    for c in cottages:
+        c["bookings_count"] = counts.get(c["id"], 0)
     rate = get_rate(cur)
     cur.close(); conn.close()
     return render_template("index.html", cottages=cottages, rate=rate)
@@ -412,6 +417,17 @@ def delete_booking(booking_id):
     return jsonify({"ok": True})
 
 
+@app.route("/cottages/<int:cottage_id>/booked-ranges")
+@login_required
+def cottage_booked_ranges(cottage_id):
+    """Занятые диапазоны дат объекта — для подсветки в календаре."""
+    conn = get_db(); cur = conn.cursor()
+    cur.execute("SELECT check_in, check_out FROM bookings WHERE cottage_id = %s ORDER BY check_in", (cottage_id,))
+    ranges = [{"from": str(r["check_in"]), "to": str(r["check_out"])} for r in cur.fetchall()]
+    cur.close(); conn.close()
+    return jsonify(ranges)
+
+
 @app.route("/cottages/<int:cottage_id>/bookings")
 @login_required
 def cottage_bookings_page(cottage_id):
@@ -426,8 +442,11 @@ def cottage_bookings_page(cottage_id):
     rate  = get_rate(cur)
     today = date.today().isoformat()
     cur.close(); conn.close()
+    # Занятые диапазоны для подсветки в календаре
+    booked_ranges = [{"from": b["check_in"], "to": b["check_out"]} for b in bookings]
     return render_template("cottage.html", cottage=dict(cottage),
-                           bookings=bookings, today=today, rate=rate)
+                           bookings=bookings, today=today, rate=rate,
+                           booked_ranges=booked_ranges)
 
 
 # ── Services ──────────────────────────────────────────────
@@ -954,7 +973,7 @@ with app.app_context():
 def export_excel_by_owner(owner_type):
     # company = коттеджи компании, hotel = номера компании, private = все собственники
     MAP = {
-        "company": ("Коттеджи компании",  "owner_type='Компания'  AND property_type='Коттедж'"),
+        "company": ("Коттеджи компании",  "owner_type='Компания'  AND property_type <> 'Номер отеля'"),
         "hotel":   ("Номера отеля",        "owner_type='Компания'  AND property_type='Номер отеля'"),
         "private": ("Собственники",        "owner_type='Собственник'"),
     }

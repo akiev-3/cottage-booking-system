@@ -5,11 +5,14 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Бронирование коттеджей</title>
 <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
 <link rel="manifest" href="/static/manifest.json">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="Коттеджи">
 <meta name="theme-color" content="#4f6ef7">
+<script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+<script src="https://npmcdn.com/flatpickr/dist/l10n/ru.js"></script>
 </head>
 <body>
 
@@ -31,10 +34,20 @@
 </header>
 
 <main>
+  {# ── Карта типов: ключ-фильтр, css-класс бейджа, подпись ── #}
+  {% set ptype_map = {
+    'Коттедж':                {'key':'cottage',   'badge':'owner-alma',    'label':'🏠 Коттедж'},
+    'Номер отеля':            {'key':'hotel',     'badge':'owner-hotel',   'label':'🏨 Номер отеля'},
+    'Квартира':               {'key':'apartment', 'badge':'owner-apart',   'label':'🏢 Квартира'},
+    'Номер для сотрудников':  {'key':'employee',  'badge':'owner-employee','label':'👷 Сотрудники'}
+  } %}
+
   <div class="owner-filter">
     <button class="filter-btn active" onclick="filterCottages('all', this)">Все</button>
-    <button class="filter-btn" onclick="filterCottages('cottage-company', this)">🏠 Коттеджи</button>
-    <button class="filter-btn" onclick="filterCottages('hotel-company', this)">🏨 Номера отеля</button>
+    <button class="filter-btn" onclick="filterCottages('cottage', this)">🏠 Коттеджи</button>
+    <button class="filter-btn" onclick="filterCottages('hotel', this)">🏨 Номера отеля</button>
+    <button class="filter-btn" onclick="filterCottages('apartment', this)">🏢 Квартиры</button>
+    <button class="filter-btn" onclick="filterCottages('employee', this)">👷 Сотрудники</button>
     <button class="filter-btn" onclick="filterCottages('private', this)">👤 Собственники</button>
   </div>
 
@@ -42,9 +55,10 @@
     {% for cottage in cottages %}
     {% set otype = cottage.owner_type %}
     {% set ptype = cottage.property_type %}
+    {% set pinfo = ptype_map.get(ptype, ptype_map['Коттедж']) %}
     <div class="cottage-card" id="card-{{ cottage.id }}"
          data-owner="{{ 'private' if otype=='Собственник' else 'company' }}"
-         data-ptype="{{ 'hotel' if ptype=='Номер отеля' else 'cottage' }}">
+         data-ptype="{{ pinfo.key }}">
       <div class="card-header">
         <h2>{{ cottage.name }}</h2>
         <div class="card-actions">
@@ -53,17 +67,11 @@
         </div>
       </div>
       <div class="card-body">
+        <div class="info-row">
+          <span class="label">🏠 Тип</span>
+          <span class="value"><span class="owner-badge {{ pinfo.badge }}">{{ pinfo.label }}</span></span>
+        </div>
         {% if otype == 'Собственник' %}
-          <div class="info-row">
-            <span class="label">🏠 Тип</span>
-            <span class="value">
-              {% if ptype == 'Номер отеля' %}
-                <span class="owner-badge owner-hotel">🏨 Номер отеля</span>
-              {% else %}
-                <span class="owner-badge owner-alma">🏠 Коттедж</span>
-              {% endif %}
-            </span>
-          </div>
           {% if cottage.owner_name %}
           <div class="info-row-stack">
             <span class="label">👤 Собственник</span>
@@ -78,22 +86,16 @@
           {% endif %}
         {% else %}
           <div class="info-row">
-            <span class="label">🏠 Тип</span>
-            <span class="value">
-              {% if ptype == 'Номер отеля' %}
-                <span class="owner-badge owner-hotel">🏨 Номер отеля</span>
-              {% else %}
-                <span class="owner-badge owner-alma">🏠 Коттедж</span>
-              {% endif %}
-            </span>
-          </div>
-          <div class="info-row">
             <span class="label">👥 Вместимость</span>
             <span class="value">{{ cottage.capacity }} чел.</span>
           </div>
           <div class="info-row">
             <span class="label">💰 Цена за сутки</span>
             <span class="value">${{ "%.0f"|format(cottage.price_per_day or 0) }}</span>
+          </div>
+          <div class="info-row">
+            <span class="label">📅 Броней</span>
+            <span class="value"><span class="count-badge">{{ cottage.bookings_count }}</span></span>
           </div>
         {% endif %}
         {% if cottage.description %}
@@ -130,16 +132,12 @@
       </div>
       <div class="form-group">
         <label>Тип объекта *</label>
-        <div class="owner-toggle">
-          <label class="owner-option">
-            <input type="radio" name="property_type" id="ptype-cottage" value="Коттедж" checked onchange="onOwnerToggle()">
-            <span class="owner-btn owner-btn-alma">🏠 Коттедж</span>
-          </label>
-          <label class="owner-option">
-            <input type="radio" name="property_type" id="ptype-hotel" value="Номер отеля" onchange="onOwnerToggle()">
-            <span class="owner-btn owner-btn-hotel">🏨 Номер отеля</span>
-          </label>
-        </div>
+        <select id="cottage-ptype" class="sel" required>
+          <option value="Коттедж">🏠 Коттедж</option>
+          <option value="Номер отеля">🏨 Номер отеля</option>
+          <option value="Квартира">🏢 Квартира</option>
+          <option value="Номер для сотрудников">👷 Номер для сотрудников</option>
+        </select>
       </div>
       <div class="form-group">
         <label>Владелец *</label>
@@ -206,13 +204,14 @@
       <div class="form-row">
         <div class="form-group">
           <label>Дата заезда *</label>
-          <input type="date" id="booking-checkin" required onchange="calcBookingTotal()">
+          <input type="text" id="booking-checkin" required placeholder="выберите дату" readonly>
         </div>
         <div class="form-group">
           <label>Дата выезда *</label>
-          <input type="date" id="booking-checkout" required onchange="calcBookingTotal()">
+          <input type="text" id="booking-checkout" required placeholder="выберите дату" readonly>
         </div>
       </div>
+      <div id="booking-busy-hint" class="busy-hint" style="display:none"></div>
       <div class="form-row">
         <div class="form-group">
           <label>Количество гостей *</label>

@@ -43,71 +43,109 @@
     'Номер для сотрудников':  {'key':'employee',  'badge':'owner-employee','label':'👷 Сотрудники'}
   } %}
 
+  {# ── Готовим списки по типам ── #}
+  {% set company  = cottages | selectattr('owner_type','equalto','Компания') | list %}
+  {% set privates = cottages | selectattr('owner_type','equalto','Собственник') | list %}
+  {% set list_cottage   = company | selectattr('property_type','equalto','Коттедж') | list %}
+  {% set list_hotel     = company | selectattr('property_type','equalto','Номер отеля') | list %}
+  {% set list_apartment = company | selectattr('property_type','equalto','Квартира') | list %}
+  {% set list_employee  = company | selectattr('property_type','equalto','Номер для сотрудников') | list %}
+
+  {# ── Макрос кнопок действий ── #}
+  {% macro act(c, is_priv=False) %}
+    <div class="row-actions">
+      {% if not is_priv %}
+      <a href="/cottages/{{ c.id }}/bookings" class="btn btn-sm btn-primary" title="Брони">📅</a>
+      <button class="btn btn-sm btn-success" title="Новая бронь" onclick="openBookingModal({{ c.id }}, '{{ c.name|e }}', {{ c.capacity or 0 }}, {{ c.price_per_day or 0 }})">＋</button>
+      {% endif %}
+      <button class="btn btn-sm btn-outline" title="Изменить" onclick="editCottage({{ c.id }}, '{{ c.name|e }}', {{ c.capacity or 0 }}, {{ c.price_per_day or 0 }}, '{{ c.description|e }}', '{{ c.owner_type }}', '{{ (c.owner_name or '')|e }}', '{{ c.contacts|e }}', '{{ c.property_type }}', '{{ c.cottage_size or '' }}', {{ c.rooms or 0 }}, '{{ c.floor or '' }}')">✏️</button>
+      <button class="btn btn-sm btn-danger" title="Удалить" onclick="deleteCottage({{ c.id }})">🗑️</button>
+    </div>
+  {% endmacro %}
+
+  {# ── Макрос: таблица объектов компании. detail = 'size' | 'floor' | 'type' ── #}
+  {% macro company_table(items, detail) %}
+    {% if items %}
+    <div class="objects-list-wrap">
+      <table class="objects-list">
+        <thead><tr>
+          <th>Название</th>
+          {% if detail == 'size' %}<th>Размер</th>
+          {% elif detail == 'floor' %}<th>Этаж</th>
+          {% elif detail == 'type' %}<th>Тип</th>{% endif %}
+          <th>Вмест.</th><th>Комнат</th><th>Цена</th><th>Броней</th><th></th>
+        </tr></thead>
+        <tbody>
+          {% for c in items %}
+          {% set pinfo = ptype_map.get(c.property_type, ptype_map['Коттедж']) %}
+          <tr id="card-{{ c.id }}">
+            <td><strong>{{ c.name }}</strong>{% if c.description %}<br><span class="muted-sm">{{ c.description }}</span>{% endif %}</td>
+            {% if detail == 'size' %}<td>{{ ('📐 ' ~ c.cottage_size) if c.cottage_size else '—' }}</td>
+            {% elif detail == 'floor' %}<td>{{ ('🛗 ' ~ c.floor) if c.floor else '—' }}</td>
+            {% elif detail == 'type' %}<td><span class="owner-badge {{ pinfo.badge }}">{{ pinfo.label }}</span></td>{% endif %}
+            <td>{{ c.capacity }} чел.</td>
+            <td>{{ c.rooms or '—' }}</td>
+            <td>${{ "%.0f"|format(c.price_per_day or 0) }}</td>
+            <td><span class="count-badge">{{ c.bookings_count }}</span></td>
+            <td>{{ act(c) }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="empty-state"><p>Объектов этого типа пока нет.</p></div>
+    {% endif %}
+  {% endmacro %}
+
   <div class="owner-filter">
-    <button class="filter-btn active" onclick="filterCottages('all', this)">Все</button>
-    <button class="filter-btn" onclick="filterCottages('cottage', this)">🏠 Коттеджи</button>
-    <button class="filter-btn" onclick="filterCottages('hotel', this)">🏨 Номера отеля</button>
-    <button class="filter-btn" onclick="filterCottages('apartment', this)">🏢 Квартиры</button>
-    <button class="filter-btn" onclick="filterCottages('employee', this)">👷 Сотрудники</button>
-    <button class="filter-btn" onclick="filterCottages('private', this)">👤 Собственники</button>
+    <button class="filter-btn active" onclick="showView('all', this)">Все ({{ company|length }})</button>
+    <button class="filter-btn" onclick="showView('cottage', this)">🏠 Коттеджи ({{ list_cottage|length }})</button>
+    <button class="filter-btn" onclick="showView('hotel', this)">🏨 Номера отеля ({{ list_hotel|length }})</button>
+    <button class="filter-btn" onclick="showView('apartment', this)">🏢 Квартиры ({{ list_apartment|length }})</button>
+    <button class="filter-btn" onclick="showView('employee', this)">👷 Сотрудники ({{ list_employee|length }})</button>
+    <button class="filter-btn" onclick="showView('private', this)">👤 Собственники ({{ privates|length }})</button>
   </div>
 
-  <div class="objects-list-wrap">
-    <table class="objects-list" id="cottages-grid">
-      <thead>
-        <tr>
-          <th>Название</th>
-          <th>Тип</th>
-          <th>Детали</th>
-          <th>Вмест.</th>
-          <th>Комнат</th>
-          <th>Цена</th>
-          <th>Броней</th>
-          <th></th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for cottage in cottages %}
-        {% set otype = cottage.owner_type %}
-        {% set ptype = cottage.property_type %}
-        {% set pinfo = ptype_map.get(ptype, ptype_map['Коттедж']) %}
-        {% set is_priv = (otype == 'Собственник') %}
-        <tr class="cottage-card" id="card-{{ cottage.id }}"
-            data-owner="{{ 'private' if is_priv else 'company' }}" data-ptype="{{ pinfo.key }}">
-          <td><strong>{{ cottage.name }}</strong></td>
-          <td><span class="owner-badge {{ pinfo.badge }}">{{ pinfo.label }}</span></td>
-          <td class="details-cell">
-            {% if is_priv %}
-              {% if cottage.owner_name %}👤 {{ cottage.owner_name }}<br>{% endif %}
-              {% if cottage.contacts %}<span class="muted-sm">📞 {{ cottage.contacts }}</span>{% endif %}
-            {% else %}
-              {% if ptype == 'Коттедж' and cottage.cottage_size %}📐 {{ cottage.cottage_size }}{% endif %}
-              {% if ptype != 'Коттедж' and cottage.floor %}🛗 Этаж {{ cottage.floor }}{% endif %}
-              {% if cottage.description %}<br><span class="muted-sm">{{ cottage.description }}</span>{% endif %}
-            {% endif %}
-          </td>
-          <td>{{ (cottage.capacity ~ ' чел.') if not is_priv else '—' }}</td>
-          <td>{{ cottage.rooms if (not is_priv and cottage.rooms) else '—' }}</td>
-          <td>{{ ('$' ~ ('%.0f'|format(cottage.price_per_day or 0))) if not is_priv else '—' }}</td>
-          <td>{% if not is_priv %}<span class="count-badge">{{ cottage.bookings_count }}</span>{% else %}—{% endif %}</td>
-          <td>
-            <div class="row-actions">
-              {% if not is_priv %}
-              <a href="/cottages/{{ cottage.id }}/bookings" class="btn btn-sm btn-primary" title="Брони">📅</a>
-              <button class="btn btn-sm btn-success" title="Новая бронь" onclick="openBookingModal({{ cottage.id }}, '{{ cottage.name|e }}', {{ cottage.capacity or 0 }}, {{ cottage.price_per_day or 0 }})">＋</button>
-              {% endif %}
-              <button class="btn btn-sm btn-outline" title="Изменить" onclick="editCottage({{ cottage.id }}, '{{ cottage.name|e }}', {{ cottage.capacity or 0 }}, {{ cottage.price_per_day or 0 }}, '{{ cottage.description|e }}', '{{ otype }}', '{{ (cottage.owner_name or '')|e }}', '{{ cottage.contacts|e }}', '{{ ptype }}', '{{ cottage.cottage_size or '' }}', {{ cottage.rooms or 0 }}, '{{ cottage.floor or '' }}')">✏️</button>
-              <button class="btn btn-sm btn-danger" title="Удалить" onclick="deleteCottage({{ cottage.id }})">🗑️</button>
-            </div>
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-    {% if not cottages %}
-    <div class="empty-state"><p>Объектов пока нет.<br>Нажмите «+ Добавить».</p></div>
+  <!-- Все объекты компании (с колонкой Тип) -->
+  <div class="obj-view" id="view-all">{{ company_table(company, 'type') }}</div>
+  <!-- Коттеджи (с колонкой Размер) -->
+  <div class="obj-view" id="view-cottage" style="display:none">{{ company_table(list_cottage, 'size') }}</div>
+  <!-- Номера отеля (с колонкой Этаж) -->
+  <div class="obj-view" id="view-hotel" style="display:none">{{ company_table(list_hotel, 'floor') }}</div>
+  <!-- Квартиры (с колонкой Этаж) -->
+  <div class="obj-view" id="view-apartment" style="display:none">{{ company_table(list_apartment, 'floor') }}</div>
+  <!-- Сотрудники (с колонкой Этаж) -->
+  <div class="obj-view" id="view-employee" style="display:none">{{ company_table(list_employee, 'floor') }}</div>
+
+  <!-- Собственники (свои колонки) -->
+  <div class="obj-view" id="view-private" style="display:none">
+    {% if privates %}
+    <div class="objects-list-wrap">
+      <table class="objects-list">
+        <thead><tr><th>Название</th><th>Тип</th><th>Собственник</th><th>Контакты</th><th></th></tr></thead>
+        <tbody>
+          {% for c in privates %}
+          {% set pinfo = ptype_map.get(c.property_type, ptype_map['Коттедж']) %}
+          <tr id="card-{{ c.id }}">
+            <td><strong>{{ c.name }}</strong></td>
+            <td><span class="owner-badge {{ pinfo.badge }}">{{ pinfo.label }}</span></td>
+            <td class="details-cell">{{ c.owner_name or '—' }}</td>
+            <td class="details-cell"><span class="muted-sm">{{ c.contacts or '—' }}</span></td>
+            <td>{{ act(c, True) }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="empty-state"><p>Собственников пока нет.</p></div>
     {% endif %}
   </div>
+
+  {% if not cottages %}
+  <div class="empty-state"><p>Объектов пока нет.<br>Нажмите «+ Добавить».</p></div>
+  {% endif %}
 </main>
 
 <!-- Modal: Добавить/редактировать -->

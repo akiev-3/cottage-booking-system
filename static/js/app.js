@@ -3,32 +3,25 @@ function openModal(id) { document.getElementById(id).classList.add('open'); }
 function closeModal(id) { document.getElementById(id).classList.remove('open'); }
 function closeModalOverlay(e, id) { if (e.target.id === id) closeModal(id); }
 
-// ── Фильтр по типу объекта ──
-// 'all' — все объекты компании (без частников)
-// 'cottage'/'hotel'/'apartment'/'employee' — компания + конкретный тип
-// 'private' — все частники
-function filterCottages(type, btn) {
+// ── Переключение вида (отдельная таблица на каждый тип) ──
+const VIEW_ORDER = ['all', 'cottage', 'hotel', 'apartment', 'employee', 'private'];
+function showView(type, btn) {
   document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
   if (btn) btn.classList.add('active');
-  localStorage.setItem('cottageFilter', type);
-  document.querySelectorAll('.cottage-card').forEach(card => {
-    const isCompany = card.dataset.owner === 'company';
-    let show = false;
-    if (type === 'all')          show = isCompany;
-    else if (type === 'private') show = card.dataset.owner === 'private';
-    else                         show = isCompany && card.dataset.ptype === type;
-    card.style.display = show ? '' : 'none';
+  VIEW_ORDER.forEach(v => {
+    const el = document.getElementById('view-' + v);
+    if (el) el.style.display = (v === type) ? '' : 'none';
   });
+  localStorage.setItem('cottageFilter', type);
 }
 
-// Восстанавливаем фильтр после перезагрузки (по data-filter)
-(function restoreCottageFilter() {
+// Восстанавливаем выбранный вид после перезагрузки
+(function restoreView() {
   const saved = localStorage.getItem('cottageFilter') || 'all';
+  const idx   = VIEW_ORDER.indexOf(saved);
   const btns  = Array.from(document.querySelectorAll('.filter-btn'));
-  const order = ['all', 'cottage', 'hotel', 'apartment', 'employee', 'private'];
-  const idx   = order.indexOf(saved);
   const btn   = idx >= 0 ? btns[idx] : btns[0];
-  if (btn) filterCottages(saved, btn);
+  showView(idx >= 0 ? saved : 'all', btn);
 })();
 
 // ── Excel дропдаун ──
@@ -126,10 +119,10 @@ async function submitCottage(e) {
 }
 
 async function deleteCottage(id) {
-  if (!confirm('Удалить коттедж и все его брони?')) return;
+  if (!confirm('Удалить объект и все его брони?')) return;
   await fetch(`/cottages/${id}`, { method: 'DELETE' });
-  document.getElementById(`card-${id}`)?.remove();
-  showToast('Коттедж удалён');
+  showToast('Объект удалён');
+  setTimeout(() => location.reload(), 500);
 }
 
 // ── Booking modal ──

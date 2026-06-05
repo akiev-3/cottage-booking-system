@@ -162,7 +162,6 @@
       {% endif %}
       <div class="catalog-actions">
         <button class="btn btn-outline" onclick="openAddService('{{ owner_name }}')">+ Добавить услугу</button>
-        <button class="btn btn-outline" onclick="openImport('{{ owner_name }}')">⬆️ Импорт из файла</button>
       </div>
     {% endmacro %}
 
@@ -297,33 +296,6 @@
   </div>
 </div>
 
-<!-- Modal: Импорт услуг -->
-<div id="modal-import" class="modal-overlay" onclick="closeModalOverlay(event,'modal-import')">
-  <div class="modal">
-    <div class="modal-header">
-      <h3>Импорт услуг — <span id="import-owner-label"></span></h3>
-      <button class="close-btn" onclick="closeModal('modal-import')">✕</button>
-    </div>
-    <form id="form-import" onsubmit="submitImport(event)">
-      <input type="hidden" id="import-owner">
-      <div class="form-group">
-        <label>Файл Excel (.xlsx) или CSV *</label>
-        <input type="file" id="import-file" accept=".xlsx,.xlsm,.csv" required>
-      </div>
-      <div class="busy-hint" style="background:#eff6ff;border-color:#bfdbfe;color:#1e40af">
-        📋 Формат: 4 колонки в порядке —<br>
-        <b>Категория | Название | Единица | Цена</b><br>
-        Первая строка — заголовки (необязательно). Пример строки:<br>
-        <code>Уборка; Мытьё окон; шт; 5000</code>
-      </div>
-      <div class="modal-footer">
-        <button type="button" class="btn btn-outline" onclick="closeModal('modal-import')">Отмена</button>
-        <button type="submit" class="btn btn-primary">Загрузить</button>
-      </div>
-    </form>
-  </div>
-</div>
-
 <div id="toast" class="toast"></div>
 
 <script>
@@ -350,7 +322,7 @@ function switchCatalogTab(type) {
   localStorage.setItem('svcCatTab', type);
 }
 
-// ── Фильтр заказов по типу объекта ──
+// ── Фильтр заказов по типу объекта (с перенумерацией) ──
 function filterOrders(type, btn) {
   document.querySelectorAll('#tab-orders .filter-btn').forEach(b => b.classList.remove('active'));
   if (btn) btn.classList.add('active');
@@ -358,7 +330,11 @@ function filterOrders(type, btn) {
   document.querySelectorAll('.order-row').forEach(row => {
     const show = (type === 'all') || row.dataset.type === type;
     row.style.display = show ? '' : 'none';
-    if (show) visible++;
+    if (show) {
+      visible++;
+      const numCell = row.querySelector('td');   // первая ячейка — №
+      if (numCell) numCell.textContent = visible; // нумеруем заново с 1
+    }
   });
   const empty = document.getElementById('orders-empty-filter');
   if (empty) empty.style.display = (visible === 0) ? 'block' : 'none';
@@ -540,31 +516,6 @@ async function submitAddService(e) {
   showToast('Услуга добавлена','success');
   closeModal('modal-add-service');
   setTimeout(()=>location.reload(),600);
-}
-
-// ── Импорт услуг ──
-function openImport(ownerName) {
-  document.getElementById('form-import').reset();
-  document.getElementById('import-owner').value = ownerName;
-  document.getElementById('import-owner-label').textContent = NAME_LABELS[ownerName] || ownerName;
-  localStorage.setItem('svcTab', 'catalog');
-  localStorage.setItem('svcCatTab', NAME_TO_KEY[ownerName] || 'cottage');
-  openModal('modal-import');
-}
-
-async function submitImport(e) {
-  e.preventDefault();
-  const file = document.getElementById('import-file').files[0];
-  if (!file) { showToast('Выберите файл', 'error'); return; }
-  const fd = new FormData();
-  fd.append('file', file);
-  fd.append('owner_type', document.getElementById('import-owner').value);
-  const res = await fetch('/service-catalog/import', { method:'POST', body: fd });
-  const data = await res.json();
-  if (!res.ok) { showToast(data.error || 'Ошибка импорта', 'error'); return; }
-  showToast(`Импортировано услуг: ${data.added}`, 'success');
-  closeModal('modal-import');
-  setTimeout(()=>location.reload(), 700);
 }
 
 // Excel дропдаун

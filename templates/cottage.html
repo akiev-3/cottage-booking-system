@@ -34,7 +34,7 @@
     <a href="/" class="back-link">← Все коттеджи</a>
     <h1>{{ cottage.name }}</h1>
   </div>
-  <div style="display:flex;gap:10px;align-items:center">
+  <div class="header-right">
     {% if can('services_view') %}<a href="/services" class="btn btn-outline">🛎️ Услуги</a>{% endif %}
     {% if can('excel') %}<a href="/export/excel/{{ cottage.id }}" class="btn btn-excel">⬇️ Excel</a>{% endif %}
     {% if can('bookings_edit') %}<button class="btn btn-success" onclick="openCreateBooking()">+ Новая бронь</button>{% endif %}

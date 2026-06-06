@@ -55,6 +55,30 @@
   .cb-col { width:36px;padding:6px 10px !important;text-align:center !important; }
   .cb-col input[type=checkbox] { width:16px;height:16px;cursor:pointer;accent-color:var(--primary); }
   .bulk-bar { display:flex;align-items:center;gap:12px;padding:9px 14px;background:#fff8f0;border:1.5px solid #f59e0b;border-radius:8px;margin-bottom:12px;font-size:0.88rem;flex-wrap:wrap; }
+
+  /* ── Мобильная адаптация страницы услуг ── */
+  @media (max-width: 768px) {
+    .tabs { width:100%; }
+    .tab-btn { flex:1; text-align:center; padding:8px 14px; font-size:0.83rem; }
+    .owner-tabs { flex-wrap:wrap; }
+  }
+  @media (max-width: 640px) {
+    .tabs { margin-bottom:16px; border-radius:8px; }
+    .tab-btn { padding:7px 10px; font-size:0.8rem; }
+    .owner-tabs { flex-wrap:wrap; gap:6px; margin-bottom:12px; }
+    .owner-tab { font-size:0.78rem; padding:5px 12px; }
+    .catalog-section { margin-bottom:20px; }
+    .catalog-table th,
+    .catalog-table td { padding:8px 12px; font-size:0.83rem; }
+    .catalog-actions { gap:6px; }
+    .catalog-actions .btn { font-size:0.8rem; padding:7px 12px; }
+    .orders-table th,
+    .orders-table td { padding:8px 12px; font-size:0.83rem; }
+  }
+  @media (max-width: 390px) {
+    .tab-btn { padding:7px 8px; font-size:0.75rem; }
+    .owner-tab { font-size:0.73rem; padding:4px 9px; }
+  }
 </style>
 </head>
 <body>

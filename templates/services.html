@@ -124,11 +124,10 @@
             <td><strong>{{ "%.0f"|format(o.total) }} сом</strong></td>
             <td>{% if o.plate %}<span class="plate-badge">{{ o.plate }}</span>{% else %}—{% endif %}</td>
             <td class="notes-col">{{ o.notes }}</td>
-            {% if can('services_edit') or can('services_delete') %}
+            {% if can('services_edit') %}
             <td>
               <div class="row-actions">
-                {% if can('services_edit') %}<button class="btn btn-sm btn-outline" title="Изменить" onclick='openEditOrder({{ o|tojson }})'>✏️</button>{% endif %}
-                {% if can('services_delete') %}<button class="btn btn-sm btn-danger" title="Удалить" onclick="deleteOrder({{ o.id }})">🗑️</button>{% endif %}
+                <button class="btn btn-sm btn-outline" title="Изменить" onclick='openEditOrder({{ o|tojson }})'>✏️</button>
               </div>
             </td>
             {% endif %}

@@ -17,9 +17,14 @@
   .cb-col { width:36px;padding:6px 10px !important;text-align:center !important; }
   .cb-col input[type=checkbox] { width:16px;height:16px;cursor:pointer;accent-color:#4f6ef7; }
   .bulk-bar { display:flex;align-items:center;gap:12px;padding:9px 14px;background:#fff8f0;border:1.5px solid #f59e0b;border-radius:8px;margin-bottom:12px;font-size:0.88rem;flex-wrap:wrap; }
-  .deposit-badge { background:#dbeafe;color:#1d4ed8;font-size:0.78rem;font-weight:600;padding:2px 7px;border-radius:4px; }
-  .balance-badge { background:#fef9c3;color:#92400e;font-size:0.78rem;font-weight:600;padding:2px 7px;border-radius:4px; }
-  .paid-badge    { background:#dcfce7;color:#166534;font-size:0.78rem;font-weight:600;padding:2px 7px;border-radius:4px; }
+  .deposit-badge  { background:#dbeafe;color:#1d4ed8;font-size:0.78rem;font-weight:600;padding:2px 7px;border-radius:4px; }
+  .balance-badge  { background:#fef9c3;color:#92400e;font-size:0.78rem;font-weight:600;padding:2px 7px;border-radius:4px; }
+  .paid-badge     { background:#dcfce7;color:#166534;font-size:0.78rem;font-weight:600;padding:2px 7px;border-radius:4px; }
+  .status-active    { background:#dbeafe;color:#1d4ed8;font-size:0.78rem;font-weight:700;padding:3px 9px;border-radius:12px;white-space:nowrap; }
+  .status-cancelled { background:#fee2e2;color:#991b1b;font-size:0.78rem;font-weight:700;padding:3px 9px;border-radius:12px;white-space:nowrap; }
+  .status-paid      { background:#dcfce7;color:#166534;font-size:0.78rem;font-weight:700;padding:3px 9px;border-radius:12px;white-space:nowrap; }
+  tr.booking-cancelled td { opacity:0.55; }
+  tr.booking-cancelled td.actions-col { opacity:1; }
 </style>
 </head>
 <body>
@@ -71,12 +76,13 @@
             <th class="col-lg">Курс</th>
             <th class="col-md">Сумма (сом)</th>
             <th class="col-xl">Заметки</th>
+            <th>Статус</th>
             {% if can('bookings_edit') %}<th></th>{% endif %}
           </tr>
         </thead>
         <tbody id="bookings-body">
           {% for b in bookings %}
-          <tr id="row-{{ b.id }}" class="{% if b.check_out < today %}past{% endif %}">
+          <tr id="row-{{ b.id }}" class="{% if b.check_out < today %}past{% endif %}{% if b.status == 'cancelled' %} booking-cancelled{% endif %}">
             {% if can('bookings_edit') %}<td class="cb-col"><input type="checkbox" class="booking-cb" value="{{ b.id }}" onchange="updateBookingBulkBar()"></td>{% endif %}
             <td class="col-id">{{ loop.index }}</td>
             <td><strong>{{ b.guest_name }}</strong></td>
@@ -94,11 +100,23 @@
             <td class="col-lg">{{ b.rate }}</td>
             <td class="col-md">{{ "%.0f"|format(b.total_som) }} сом</td>
             <td class="col-xl notes-cell">{{ b.notes }}</td>
-            {% if can('bookings_edit') %}
             <td>
+              {% if b.status == 'active' %}<span class="status-active">Активна</span>
+              {% elif b.status == 'cancelled' %}<span class="status-cancelled">Отменена</span>
+              {% elif b.status == 'paid' %}<span class="status-paid">Оплачена</span>
+              {% else %}<span class="status-active">Активна</span>{% endif %}
+            </td>
+            {% if can('bookings_edit') %}
+            <td class="actions-col">
               <div class="row-actions">
                 <button class="btn btn-sm btn-outline" title="Изменить"
                         onclick='editBooking({{ b.id }}, {{ {"guest_name": b.guest_name, "check_in": b.check_in, "check_out": b.check_out, "guests": b.guests, "rate": b.rate, "discount": b.discount, "deposit_paid": b.deposit_paid, "notes": b.notes}|tojson }})'>✏️</button>
+                {% if b.status == 'active' %}
+                <button class="btn btn-sm btn-success" title="Отметить как оплаченную" onclick="setBookingStatus({{ b.id }}, 'paid')">✓</button>
+                <button class="btn btn-sm btn-danger"  title="Отменить бронь"           onclick="setBookingStatus({{ b.id }}, 'cancelled')">✗</button>
+                {% elif b.status == 'cancelled' %}
+                <button class="btn btn-sm btn-outline" title="Восстановить бронь"       onclick="setBookingStatus({{ b.id }}, 'active')">↩</button>
+                {% endif %}
               </div>
             </td>
             {% endif %}
@@ -194,6 +212,18 @@
 </script>
 <script src="{{ url_for('static', filename='js/cottage.js') }}"></script>
 <script>
+async function setBookingStatus(id, status) {
+  const labels = {cancelled: 'отменить бронь (аванс не возвращается)', paid: 'отметить как оплаченную', active: 'восстановить бронь'};
+  if (!confirm(`Вы уверены — ${labels[status]}?`)) return;
+  const res = await fetch(`/bookings/${id}/status`, {
+    method: 'PATCH', headers: {'Content-Type':'application/json'}, body: JSON.stringify({status})
+  });
+  if (!res.ok) { showToast('Ошибка', 'error'); return; }
+  const messages = {cancelled: 'Бронь отменена, календарь освобождён', paid: 'Отмечена как оплаченная', active: 'Бронь восстановлена'};
+  showToast(messages[status], 'success');
+  setTimeout(() => location.reload(), 600);
+}
+
 function toggleAllBookings(masterCb) {
   document.querySelectorAll('.booking-cb').forEach(cb => cb.checked = masterCb.checked);
   updateBookingBulkBar();

@@ -153,6 +153,7 @@ def init_db():
         )
     """)
     cur.execute("ALTER TABLE bookings ADD COLUMN IF NOT EXISTS deposit_paid FLOAT DEFAULT 0")
+    cur.execute("ALTER TABLE bookings ADD COLUMN IF NOT EXISTS status VARCHAR(20) DEFAULT 'active'")
     cur.execute("""
         CREATE TABLE IF NOT EXISTS settings (
             key   VARCHAR(50) PRIMARY KEY,
@@ -269,6 +270,7 @@ def serialize_booking(row) -> dict:
             b[field] = b[field].isoformat()
     b["deposit_paid"] = float(b.get("deposit_paid") or 0)
     b["balance"] = round(max(0.0, float(b.get("total") or 0) - b["deposit_paid"]), 2)
+    b["status"] = b.get("status") or "active"
     return b
 
 
@@ -333,8 +335,8 @@ def index():
     cur  = conn.cursor()
     cur.execute("SELECT * FROM cottages ORDER BY position, id")
     cottages = [dict(r) for r in cur.fetchall()]
-    # Счётчик активных (не прошедших) броней по каждому объекту
-    cur.execute("SELECT cottage_id, COUNT(*) AS cnt FROM bookings WHERE check_out >= CURRENT_DATE GROUP BY cottage_id")
+    # Счётчик активных (не прошедших и не отменённых) броней
+    cur.execute("SELECT cottage_id, COUNT(*) AS cnt FROM bookings WHERE check_out >= CURRENT_DATE AND status != 'cancelled' GROUP BY cottage_id")
     counts = {r["cottage_id"]: r["cnt"] for r in cur.fetchall()}
     for c in cottages:
         c["bookings_count"] = counts.get(c["id"], 0)
@@ -634,10 +636,11 @@ def create_booking():
         cur.close(); conn.close()
         return jsonify({"error": "Дата выезда должна быть позже даты заезда"}), 400
 
-    # Проверка пересечений
+    # Проверка пересечений (отменённые брони не блокируют даты)
     cur.execute("""
         SELECT id, check_in, check_out FROM bookings
         WHERE cottage_id = %s AND check_in < %s AND check_out > %s
+          AND status != 'cancelled'
     """, (cottage_id, co, ci))
     conflict = cur.fetchone()
     if conflict:
@@ -705,10 +708,11 @@ def update_booking(booking_id):
         cur.close(); conn.close()
         return jsonify({"error": "Дата выезда должна быть позже даты заезда"}), 400
 
-    # Проверка пересечений — исключая саму редактируемую бронь
+    # Проверка пересечений — исключая саму редактируемую бронь и отменённые
     cur.execute("""
         SELECT id, check_in, check_out FROM bookings
         WHERE cottage_id = %s AND id <> %s AND check_in < %s AND check_out > %s
+          AND status != 'cancelled'
     """, (cottage_id, booking_id, co, ci))
     conflict = cur.fetchone()
     if conflict:
@@ -740,6 +744,22 @@ def update_booking(booking_id):
     return jsonify(booking)
 
 
+@app.route("/bookings/<int:booking_id>/status", methods=["PATCH"])
+@require_perm("bookings_edit")
+def update_booking_status(booking_id):
+    new_status = request.json.get("status")
+    if new_status not in ("active", "cancelled", "paid"):
+        return jsonify({"error": "Недопустимый статус"}), 400
+    conn = get_db(); cur = conn.cursor()
+    cur.execute("UPDATE bookings SET status=%s WHERE id=%s RETURNING *", (new_status, booking_id))
+    row = cur.fetchone()
+    if not row:
+        cur.close(); conn.close()
+        return jsonify({"error": "Бронь не найдена"}), 404
+    conn.commit(); cur.close(); conn.close()
+    return jsonify(serialize_booking(row))
+
+
 @app.route("/bookings/<int:booking_id>", methods=["DELETE"])
 @require_perm("bookings_edit")
 def delete_booking(booking_id):
@@ -767,7 +787,7 @@ def bulk_delete_bookings():
 def cottage_booked_ranges(cottage_id):
     """Занятые диапазоны дат объекта — для подсветки в календаре."""
     conn = get_db(); cur = conn.cursor()
-    cur.execute("SELECT check_in, check_out FROM bookings WHERE cottage_id = %s ORDER BY check_in", (cottage_id,))
+    cur.execute("SELECT check_in, check_out FROM bookings WHERE cottage_id = %s AND status != 'cancelled' ORDER BY check_in", (cottage_id,))
     ranges = [{"from": str(r["check_in"]), "to": str(r["check_out"])} for r in cur.fetchall()]
     cur.close(); conn.close()
     return jsonify(ranges)

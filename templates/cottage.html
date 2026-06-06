@@ -20,6 +20,7 @@
   .deposit-badge  { background:#dbeafe;color:#1d4ed8;font-size:0.78rem;font-weight:600;padding:2px 7px;border-radius:4px; }
   .balance-badge  { background:#fef9c3;color:#92400e;font-size:0.78rem;font-weight:600;padding:2px 7px;border-radius:4px; }
   .paid-badge     { background:#dcfce7;color:#166534;font-size:0.78rem;font-weight:600;padding:2px 7px;border-radius:4px; }
+  .extra-badge    { background:#ffedd5;color:#9a3412;font-size:0.78rem;font-weight:600;padding:2px 7px;border-radius:4px; }
   .status-active    { background:#dbeafe;color:#1d4ed8;font-size:0.78rem;font-weight:700;padding:3px 9px;border-radius:12px;white-space:nowrap; }
   .status-cancelled { background:#fee2e2;color:#991b1b;font-size:0.78rem;font-weight:700;padding:3px 9px;border-radius:12px;white-space:nowrap; }
   .status-paid      { background:#dcfce7;color:#166534;font-size:0.78rem;font-weight:700;padding:3px 9px;border-radius:12px;white-space:nowrap; }
@@ -69,6 +70,7 @@
             <th>Выезд</th>
             <th class="col-md">Ночей</th>
             <th class="col-md">Гостей</th>
+            <th class="col-lg">Доп. гости ($)</th>
             <th>Сумма ($)</th>
             <th class="col-md">Аванс ($)</th>
             <th class="col-md">Остаток ($)</th>
@@ -90,6 +92,7 @@
             <td>{{ b.check_out|fmtdate }}</td>
             <td class="col-md">{{ b.nights }}</td>
             <td class="col-md">{{ b.guests }}</td>
+            <td class="col-lg">{% if b.extra_per_night %}<span class="extra-badge">+${{ "%.0f"|format(b.extra_per_night * b.nights) }}</span>{% else %}—{% endif %}</td>
             <td>
               ${{ "%.0f"|format(b.total) }}
               {% if b.discount %}<span class="was-price">${{ "%.0f"|format(b.total_before_discount) }}</span>{% endif %}
@@ -110,7 +113,7 @@
             <td class="actions-col">
               <div class="row-actions">
                 <button class="btn btn-sm btn-outline" title="Изменить"
-                        onclick='editBooking({{ b.id }}, {{ {"guest_name": b.guest_name, "check_in": b.check_in, "check_out": b.check_out, "guests": b.guests, "rate": b.rate, "discount": b.discount, "deposit_paid": b.deposit_paid, "notes": b.notes}|tojson }})'>✏️</button>
+                        onclick='editBooking({{ b.id }}, {{ {"guest_name": b.guest_name, "check_in": b.check_in, "check_out": b.check_out, "guests": b.guests, "rate": b.rate, "discount": b.discount, "deposit_paid": b.deposit_paid, "extra_per_night": b.extra_per_night, "notes": b.notes}|tojson }})'>✏️</button>
                 {% if b.status == 'active' %}
                 <button class="btn btn-sm btn-success" title="Отметить как оплаченную" onclick="setBookingStatus({{ b.id }}, 'paid')">✓</button>
                 <button class="btn btn-sm btn-danger"  title="Отменить бронь"           onclick="setBookingStatus({{ b.id }}, 'cancelled')">✗</button>
@@ -181,6 +184,11 @@
           <small class="hint">предоплата (не возвращается)</small>
         </div>
       </div>
+      <div id="booking-extra-group" class="form-group" style="display:none">
+        <label>Доп. за гостей ($/ночь)</label>
+        <input type="number" id="booking-extra" min="0" step="0.5" placeholder="0" onchange="calcTotal()">
+        <small class="hint">надбавка за доп. гостей — умножается на кол-во ночей</small>
+      </div>
       <div class="form-group">
         <label>Заметки</label>
         <textarea id="booking-notes" placeholder="Пожелания гостя..." rows="2"></textarea>
@@ -190,6 +198,7 @@
           <div>Итого: <strong id="total-usd"></strong></div>
           <div class="total-sub" id="total-tenge"></div>
           <div class="total-discount" id="total-discount-line" style="display:none"></div>
+          <div class="total-extra" id="total-extra-line" style="display:none"></div>
         </div>
         <span class="nights-label" id="total-nights"></span>
       </div>
@@ -204,11 +213,13 @@
 <div id="toast" class="toast"></div>
 
 <script>
-  const COTTAGE_ID    = {{ cottage.id }};
-  const PRICE_PER_DAY = {{ cottage.price_per_day }};
-  const MAX_GUESTS    = {{ cottage.capacity }};
-  const RATE          = {{ rate }};
-  const BOOKED_RANGES = {{ booked_ranges|tojson }};
+  const COTTAGE_ID     = {{ cottage.id }};
+  const PRICE_PER_DAY  = {{ cottage.price_per_day }};
+  const MAX_GUESTS     = {{ cottage.capacity }};
+  const RATE           = {{ rate }};
+  const BOOKED_RANGES  = {{ booked_ranges|tojson }};
+  const PROPERTY_TYPE  = {{ cottage.property_type|tojson }};
+  const EXTRA_FEE_TYPES = ['Коттедж', 'Номер отеля', 'Квартира'];
 </script>
 <script src="{{ url_for('static', filename='js/cottage.js') }}"></script>
 <script>

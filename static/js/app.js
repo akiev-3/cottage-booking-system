@@ -201,7 +201,9 @@ function occupiedNights(ranges) {
   });
 }
 
-async function openBookingModal(cottageId, name, capacity, price) {
+const EXTRA_FEE_TYPES = ['Коттедж', 'Номер отеля', 'Квартира'];
+
+async function openBookingModal(cottageId, name, capacity, price, propertyType) {
   bookingPrice = price;
   document.getElementById('booking-cottage-id').value          = cottageId;
   document.getElementById('booking-cottage-name').textContent  = name;
@@ -210,6 +212,9 @@ async function openBookingModal(cottageId, name, capacity, price) {
   document.getElementById('booking-capacity-hint').textContent = `Максимум: ${capacity} чел.`;
   document.getElementById('form-booking').reset();
   document.getElementById('booking-total-block').style.display = 'none';
+  // Показать поле доп. гостей только для коттеджей, номеров и квартир
+  const extraGroup = document.getElementById('booking-extra-group');
+  if (extraGroup) extraGroup.style.display = EXTRA_FEE_TYPES.includes(propertyType) ? '' : 'none';
 
   // Загружаем занятые даты
   occupiedRanges = [];
@@ -247,15 +252,17 @@ function initBookingCalendars() {
 }
 
 function calcBookingTotal() {
-  const ci       = document.getElementById('booking-checkin').value;
-  const co       = document.getElementById('booking-checkout').value;
-  const rate     = parseFloat(document.getElementById('booking-rate').value);
-  const discount = parseFloat(document.getElementById('booking-discount').value) || 0;
+  const ci         = document.getElementById('booking-checkin').value;
+  const co         = document.getElementById('booking-checkout').value;
+  const rate       = parseFloat(document.getElementById('booking-rate').value);
+  const discount   = parseFloat(document.getElementById('booking-discount').value) || 0;
+  const extraNight = parseFloat(document.getElementById('booking-extra').value) || 0;
   if (!ci || !co || !rate) return;
   const nights      = Math.round((new Date(co) - new Date(ci)) / 86400000);
   const block       = document.getElementById('booking-total-block');
   if (nights <= 0)  { block.style.display = 'none'; return; }
-  const totalBefore = nights * bookingPrice;
+  const extraTotal  = extraNight * nights;
+  const totalBefore = nights * bookingPrice + extraTotal;
   const totalUsd    = Math.max(0, totalBefore - discount);
   const totalSom    = Math.round(totalUsd * rate);
   document.getElementById('booking-total-usd').textContent   = `$${totalUsd.toLocaleString('ru-RU')}`;
@@ -267,6 +274,13 @@ function calcBookingTotal() {
     discLine.style.display = 'block';
   } else {
     discLine.style.display = 'none';
+  }
+  const extraLine = document.getElementById('booking-extra-line');
+  if (extraTotal > 0) {
+    extraLine.textContent = `Доп. гости +$${extraNight}/ночь × ${nights} = $${extraTotal.toLocaleString('ru-RU')}`;
+    extraLine.style.display = 'block';
+  } else {
+    extraLine.style.display = 'none';
   }
   block.style.display = 'flex';
 }
@@ -296,9 +310,10 @@ async function submitBooking(e) {
     check_out:  co,
     guests:     document.getElementById('booking-guests').value,
     rate,
-    discount:     parseFloat(document.getElementById('booking-discount').value) || 0,
-    deposit_paid: parseFloat(document.getElementById('booking-deposit').value) || 0,
-    notes:        document.getElementById('booking-notes').value.trim(),
+    discount:        parseFloat(document.getElementById('booking-discount').value) || 0,
+    deposit_paid:    parseFloat(document.getElementById('booking-deposit').value) || 0,
+    extra_per_night: parseFloat(document.getElementById('booking-extra').value) || 0,
+    notes:           document.getElementById('booking-notes').value.trim(),
   };
   const res  = await fetch('/bookings', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
   const data = await res.json();

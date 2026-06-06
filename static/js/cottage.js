@@ -54,6 +54,12 @@ function initCalendars(allowPast) {
 }
 document.addEventListener('DOMContentLoaded', () => initCalendars(false));
 
+// Показать/скрыть поле доп. гостей в зависимости от типа объекта
+function applyExtraFieldVisibility() {
+  const group = document.getElementById('booking-extra-group');
+  if (group) group.style.display = (typeof EXTRA_FEE_TYPES !== 'undefined' && EXTRA_FEE_TYPES.includes(PROPERTY_TYPE)) ? '' : 'none';
+}
+
 // Открыть форму создания
 function openCreateBooking() {
   excludeRange = null;
@@ -62,6 +68,7 @@ function openCreateBooking() {
   document.getElementById('booking-modal-title').textContent = 'Новая бронь';
   document.getElementById('booking-submit-btn').textContent  = 'Забронировать';
   document.getElementById('total-block').style.display = 'none';
+  applyExtraFieldVisibility();
   initCalendars(false);
   if (fpCheckin) fpCheckin.clear();
   if (fpCheckout) fpCheckout.clear();
@@ -79,7 +86,9 @@ function editBooking(id, b) {
   document.getElementById('booking-rate').value       = b.rate || '';
   document.getElementById('booking-discount').value   = b.discount || '';
   document.getElementById('booking-deposit').value    = b.deposit_paid || '';
+  document.getElementById('booking-extra').value      = b.extra_per_night || '';
   document.getElementById('booking-notes').value      = b.notes || '';
+  applyExtraFieldVisibility();
   initCalendars(true);   // при редактировании прошлые даты разрешены
   fpCheckin.setDate(b.check_in, true);
   fpCheckout.setDate(b.check_out, true);
@@ -88,15 +97,17 @@ function editBooking(id, b) {
 }
 
 function calcTotal() {
-  const ci       = document.getElementById('booking-checkin').value;
-  const co       = document.getElementById('booking-checkout').value;
-  const rate     = parseFloat(document.getElementById('booking-rate').value);
-  const discount = parseFloat(document.getElementById('booking-discount').value) || 0;
+  const ci        = document.getElementById('booking-checkin').value;
+  const co        = document.getElementById('booking-checkout').value;
+  const rate      = parseFloat(document.getElementById('booking-rate').value);
+  const discount  = parseFloat(document.getElementById('booking-discount').value) || 0;
+  const extraNight = parseFloat(document.getElementById('booking-extra').value) || 0;
   if (!ci || !co || !rate) return;
   const nights      = Math.round((new Date(co) - new Date(ci)) / 86400000);
   const block       = document.getElementById('total-block');
   if (nights <= 0)  { block.style.display = 'none'; return; }
-  const totalBefore = nights * PRICE_PER_DAY;
+  const extraTotal  = extraNight * nights;
+  const totalBefore = nights * PRICE_PER_DAY + extraTotal;
   const totalUsd    = Math.max(0, totalBefore - discount);
   const totalSom    = Math.round(totalUsd * rate);
   document.getElementById('total-usd').textContent    = `$${totalUsd.toLocaleString('ru-RU')}`;
@@ -108,6 +119,13 @@ function calcTotal() {
     discLine.style.display = 'block';
   } else {
     discLine.style.display = 'none';
+  }
+  const extraLine = document.getElementById('total-extra-line');
+  if (extraTotal > 0) {
+    extraLine.textContent = `Доп. гости +$${extraNight}/ночь × ${nights} = $${extraTotal.toLocaleString('ru-RU')}`;
+    extraLine.style.display = 'block';
+  } else {
+    extraLine.style.display = 'none';
   }
   block.style.display = 'flex';
 }
@@ -129,9 +147,10 @@ async function submitBookingPage(e) {
     check_out:  co,
     guests:     document.getElementById('booking-guests').value,
     rate,
-    discount:     parseFloat(document.getElementById('booking-discount').value) || 0,
-    deposit_paid: parseFloat(document.getElementById('booking-deposit').value) || 0,
-    notes:        document.getElementById('booking-notes').value.trim(),
+    discount:        parseFloat(document.getElementById('booking-discount').value) || 0,
+    deposit_paid:    parseFloat(document.getElementById('booking-deposit').value) || 0,
+    extra_per_night: parseFloat(document.getElementById('booking-extra').value) || 0,
+    notes:           document.getElementById('booking-notes').value.trim(),
   };
   const url    = id ? `/bookings/${id}` : '/bookings';
   const method = id ? 'PUT' : 'POST';

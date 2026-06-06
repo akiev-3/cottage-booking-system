@@ -124,6 +124,17 @@
     <button class="filter-btn" onclick="showView('private', this)">👤 Собственники ({{ privates|length }})</button>
   </div>
 
+  {% if can('bookings_edit') %}
+  <div class="reorder-toolbar">
+    <button id="reorder-toggle" class="btn btn-outline btn-sm" onclick="enterReorder()">↕️ Изменить порядок</button>
+    <div id="reorder-bar" class="reorder-bar" style="display:none">
+      <span class="reorder-hint">↕️ Перетащите строки в нужном порядке, затем сохраните</span>
+      <button class="btn btn-success btn-sm" onclick="saveReorder()">✓ Сохранить</button>
+      <button class="btn btn-outline btn-sm" onclick="cancelReorder()">✕ Отмена</button>
+    </div>
+  </div>
+  {% endif %}
+
   <!-- Все объекты компании (с колонкой Тип) -->
   <div class="obj-view" id="view-all">{{ company_table(company, 'type') }}</div>
   <!-- Коттеджи (с колонкой Размер) -->

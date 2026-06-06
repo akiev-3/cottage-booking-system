@@ -113,6 +113,17 @@
       <button class="filter-btn" onclick="filterOrders('{{ key }}', this)">{{ label }}</button>
       {% endfor %}
     </div>
+
+    {% if can('services_edit') and orders %}
+    <div class="reorder-toolbar">
+      <button id="reorder-toggle" class="btn btn-outline btn-sm" onclick="enterReorder()">↕️ Изменить порядок</button>
+      <div id="reorder-bar" class="reorder-bar" style="display:none">
+        <span class="reorder-hint">↕️ Перетащите строки в нужном порядке, затем сохраните</span>
+        <button class="btn btn-success btn-sm" onclick="saveReorder()">✓ Сохранить</button>
+        <button class="btn btn-outline btn-sm" onclick="cancelReorder()">✕ Отмена</button>
+      </div>
+    </div>
+    {% endif %}
     {% if orders %}
     {% if can('services_delete') %}
     <div id="orders-bulk-bar" class="bulk-bar" style="display:none">
@@ -724,10 +735,12 @@ onOwnerTypeChange();
   if (idx >= 0 && btns[idx]) filterOrders(ordFilter, btns[idx]);
 })();
 
-// ── Drag-and-drop сортировка заказов (только при праве на редактирование) ──
-// Сохранение порядка: один запрос за раз + мягкая пересинхронизация вида,
-// чтобы порядок не «слетал» при нескольких быстрых перестановках.
-const _ordSave = { busy: false, pending: false, timer: null };
+// ── Изменение порядка заказов: режим редактирования ──
+// По умолчанию строки зафиксированы. «Изменить порядок» включает перетаскивание,
+// «Сохранить» отправляет итоговый порядок разом, «Отмена» — возвращает прежний.
+let _ordSortable = null;
+let _ordReorderMode = false;
+let _ordDirty = false;
 
 function _ordRenumber(tbody) {
   let n = 0;
@@ -738,44 +751,62 @@ function _ordRenumber(tbody) {
   });
 }
 
-function _queueOrderSave(tbody) {
-  clearTimeout(_ordSave.timer);
-  _ordSave.pending = true;
-  _flushOrderSave(tbody);
-}
-
-async function _flushOrderSave(tbody) {
-  if (_ordSave.busy || !_ordSave.pending) return;
-  _ordSave.pending = false;
-  _ordSave.busy = true;
-  const ids = Array.from(tbody.querySelectorAll('tr'))
-                   .map(tr => (tr.id || '').replace('orow-', ''))
-                   .filter(Boolean);
-  try {
-    await fetch('/service-orders/reorder', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ids})});
-    showToast('Порядок сохранён','success');
-  } catch(_) { showToast('Ошибка сохранения порядка','error'); }
-  _ordSave.busy = false;
-  if (_ordSave.pending) { _flushOrderSave(tbody); return; }
-  _ordSave.timer = setTimeout(() => {
-    try { sessionStorage.setItem('svcReorderScroll', String(window.scrollY)); } catch(_) {}
-    location.reload();
-  }, 800);
-}
-
 (function initOrdersSortable() {
   const tbody = document.getElementById('orders-body');
   if (!tbody || !tbody.classList.contains('can-sort') || typeof Sortable === 'undefined') return;
-  Sortable.create(tbody, {
+  _ordSortable = Sortable.create(tbody, {
     animation: 150,
     handle: 'td',
     filter: 'button, a',
     preventOnFilter: false,
-    onEnd: () => { _ordRenumber(tbody); _queueOrderSave(tbody); }
+    disabled: true,
+    onEnd: () => { _ordRenumber(tbody); _ordDirty = true; }
   });
 })();
 
-// Восстановление прокрутки после пересинхронизации порядка
+function _ordUpdateUI() {
+  const toggle = document.getElementById('reorder-toggle');
+  const bar    = document.getElementById('reorder-bar');
+  if (toggle) toggle.style.display = _ordReorderMode ? 'none' : '';
+  if (bar)    bar.style.display    = _ordReorderMode ? 'flex' : 'none';
+}
+
+function enterReorder() {
+  if (!_ordSortable) return;
+  _ordReorderMode = true; _ordDirty = false;
+  _ordSortable.option('disabled', false);
+  document.body.classList.add('reorder-mode');
+  _ordUpdateUI();
+}
+
+function cancelReorder() {
+  if (_ordDirty) {
+    try { sessionStorage.setItem('svcReorderScroll', String(window.scrollY)); } catch(_) {}
+    location.reload();
+    return;
+  }
+  _ordReorderMode = false;
+  if (_ordSortable) _ordSortable.option('disabled', true);
+  document.body.classList.remove('reorder-mode');
+  _ordUpdateUI();
+}
+
+async function saveReorder() {
+  if (!_ordDirty) { cancelReorder(); showToast('Изменений нет'); return; }
+  const tbody = document.getElementById('orders-body');
+  const ids = Array.from(tbody.querySelectorAll('tr'))
+                   .map(tr => (tr.id || '').replace('orow-', ''))
+                   .filter(Boolean);
+  try {
+    const res = await fetch('/service-orders/reorder', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ids})});
+    if (!res.ok) throw new Error();
+  } catch(_) { showToast('Ошибка сохранения порядка','error'); return; }
+  showToast('Порядок сохранён','success');
+  try { sessionStorage.setItem('svcReorderScroll', String(window.scrollY)); } catch(_) {}
+  setTimeout(() => location.reload(), 400);
+}
+
+// Восстановление прокрутки после сохранения/отмены порядка
 document.addEventListener('DOMContentLoaded', () => {
   let sy = null;
   try { sy = sessionStorage.getItem('svcReorderScroll'); } catch(_) {}

@@ -446,6 +446,36 @@ tbody.sortable-rows tr, #orders-body tr { cursor: grab; }
   .totals-count { margin-left: 0; }
 }
 
+/* ── Изменение порядка строк (режим редактирования) ── */
+.reorder-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+  flex-wrap: wrap;
+}
+.reorder-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  background: #fff8f0;
+  border: 1.5px solid #f59e0b;
+  border-radius: 8px;
+  padding: 8px 12px;
+}
+.reorder-hint { font-size: 0.82rem; color: #92400e; font-weight: 600; }
+
+/* В режиме перетаскивания — подсказываем, что строки можно тянуть */
+body.reorder-mode tbody.sortable-rows tr,
+body.reorder-mode tbody.can-sort tr { cursor: grab; }
+body.reorder-mode tbody.sortable-rows tr:hover td,
+body.reorder-mode tbody.can-sort tr:hover td { background: #fff8f0; }
+body.reorder-mode .sortable-chosen { background: #fef3c7 !important; }
+body.reorder-mode .sortable-chosen td { background: #fef3c7 !important; }
+.sortable-ghost { opacity: 0.45; }
+.sortable-ghost td { background: #e0e7ff !important; }
+
 /* ── Empty state ── */
 .empty-state {
   grid-column: 1 / -1;
@@ -611,8 +641,6 @@ textarea { resize: vertical; }
 /* lg — скрывается ниже 860px */
 @media (max-width: 860px) {
   .col-lg { display: none; }
-  .bookings-table th:nth-child(8),
-  .bookings-table th:nth-child(9) { display: none; }
 }
 
 /* md — скрывается ниже 640px */
@@ -710,6 +738,13 @@ textarea { resize: vertical; }
   /* Фильтр объектов */
   .owner-filter { gap: 6px; margin-bottom: 16px; }
   .filter-btn   { font-size: 0.78rem; padding: 6px 11px; }
+
+  /* Изменение порядка — на всю ширину */
+  .reorder-toolbar { width: 100%; }
+  .reorder-toolbar > #reorder-toggle { width: 100%; justify-content: center; }
+  .reorder-bar { width: 100%; }
+  .reorder-hint { width: 100%; text-align: center; }
+  .reorder-bar .btn { flex: 1; justify-content: center; }
 
   /* Таблица броней — горизонтальный скролл */
   .bookings-table-wrap { border-radius: 8px; }

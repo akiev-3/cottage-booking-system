@@ -13,40 +13,81 @@ function renumberRows(tbody) {
   });
 }
 
-// Сохранение порядка: не более одного запроса одновременно + мягкая
-// пересинхронизация вида после того, как пользователь закончил перетаскивать.
-// Это убирает «багающийся» порядок при нескольких быстрых перестановках.
-const _orderSave = { busy: false, pending: null, timer: null };
+// ── Режим изменения порядка ──
+// По умолчанию строки зафиксированы (перетаскивание выключено). Пользователь
+// жмёт «Изменить порядок», двигает строки, затем «Сохранить» — все изменения
+// уходят разом. «Отмена» возвращает прежний порядок.
+let _sortables   = [];
+let _reorderMode = false;
+const _dirtyTbodies = new Set();
 
-function queueRowOrder(tbody, idPrefix) {
-  clearTimeout(_orderSave.timer);             // пользователь ещё двигает — не перезагружаем
-  _orderSave.pending = { tbody, idPrefix };
-  flushRowOrder();
+function initSortable() {
+  if (typeof Sortable === 'undefined') return;
+  _sortables = [];
+  document.querySelectorAll('tbody.sortable-rows').forEach(tbody => {
+    const s = Sortable.create(tbody, {
+      animation: 150,
+      handle: 'td',                 // тянуть за любую ячейку
+      filter: '.row-actions, button, a, input',  // кроме кнопок
+      preventOnFilter: false,
+      disabled: true,               // включается только в режиме редактирования
+      onEnd: () => { renumberRows(tbody); _dirtyTbodies.add(tbody); }
+    });
+    _sortables.push(s);
+  });
+}
+document.addEventListener('DOMContentLoaded', initSortable);
+
+function enterReorder() {
+  _reorderMode = true;
+  _dirtyTbodies.clear();
+  _sortables.forEach(s => s.option('disabled', false));
+  document.body.classList.add('reorder-mode');
+  _updateReorderUI();
 }
 
-async function flushRowOrder() {
-  if (_orderSave.busy || !_orderSave.pending) return;
-  const { tbody, idPrefix } = _orderSave.pending;
-  _orderSave.pending = null;
-  _orderSave.busy = true;
-  const url = tbody.dataset.reorder;
-  const ids = Array.from(tbody.querySelectorAll('tr'))
-                   .map(tr => (tr.id || '').replace(idPrefix, ''))
-                   .filter(Boolean);
-  try {
-    await fetch(url, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ ids }) });
-    showToast('Порядок сохранён', 'success');
-  } catch (_) { showToast('Не удалось сохранить порядок', 'error'); }
-  _orderSave.busy = false;
-  if (_orderSave.pending) { flushRowOrder(); return; }   // за время запроса появились новые изменения
-  // всё сохранено — через паузу пересинхронизируем DOM с базой (сохраняя прокрутку)
-  _orderSave.timer = setTimeout(() => {
-    try { sessionStorage.setItem('reorderScroll', String(window.scrollY)); } catch (_) {}
+function cancelReorder() {
+  if (_dirtyTbodies.size) {        // были перемещения — откатываем перезагрузкой
+    _saveReorderScroll();
     location.reload();
-  }, 800);
+    return;
+  }
+  _reorderMode = false;
+  _sortables.forEach(s => s.option('disabled', true));
+  document.body.classList.remove('reorder-mode');
+  _updateReorderUI();
 }
 
-// Восстановление прокрутки после пересинхронизации
+async function saveReorder() {
+  const dirty = Array.from(_dirtyTbodies);
+  if (!dirty.length) { cancelReorder(); showToast('Изменений нет'); return; }
+  for (const tbody of dirty) {
+    const url = tbody.dataset.reorder;
+    const ids = Array.from(tbody.querySelectorAll('tr'))
+                     .map(tr => (tr.id || '').replace('card-', ''))
+                     .filter(Boolean);
+    try {
+      const res = await fetch(url, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ ids }) });
+      if (!res.ok) throw new Error();
+    } catch (_) { showToast('Не удалось сохранить порядок', 'error'); return; }
+  }
+  showToast('Порядок сохранён', 'success');
+  _saveReorderScroll();
+  setTimeout(() => location.reload(), 400);
+}
+
+function _updateReorderUI() {
+  const toggle = document.getElementById('reorder-toggle');
+  const bar    = document.getElementById('reorder-bar');
+  if (toggle) toggle.style.display = _reorderMode ? 'none' : '';
+  if (bar)    bar.style.display    = _reorderMode ? 'flex' : 'none';
+}
+
+function _saveReorderScroll() {
+  try { sessionStorage.setItem('reorderScroll', String(window.scrollY)); } catch (_) {}
+}
+
+// Восстановление прокрутки после сохранения/отмены порядка
 document.addEventListener('DOMContentLoaded', () => {
   let sy = null;
   try { sy = sessionStorage.getItem('reorderScroll'); } catch (_) {}
@@ -55,20 +96,6 @@ document.addEventListener('DOMContentLoaded', () => {
     window.scrollTo(0, parseInt(sy, 10) || 0);
   }
 });
-
-function initSortable() {
-  if (typeof Sortable === 'undefined') return;
-  document.querySelectorAll('tbody.sortable-rows').forEach(tbody => {
-    Sortable.create(tbody, {
-      animation: 150,
-      handle: 'td',                 // тянуть за любую ячейку
-      filter: '.row-actions, button, a, input',  // кроме кнопок
-      preventOnFilter: false,
-      onEnd: () => { renumberRows(tbody); queueRowOrder(tbody, 'card-'); }
-    });
-  });
-}
-document.addEventListener('DOMContentLoaded', initSortable);
 
 // ── Демо-данные ──
 async function clearDemo() {

@@ -3,7 +3,6 @@ from functools import wraps
 from werkzeug.security import generate_password_hash, check_password_hash
 import os
 import io
-import csv
 import json
 from datetime import datetime, date
 from openpyxl import Workbook
@@ -276,6 +275,17 @@ def init_db():
         WHERE so.cottage_id = c.id AND (so.object_type IS NULL OR so.object_type = '')
     """)
 
+    # ── Индексы для ускорения частых запросов ────────────
+    # Брони почти всегда фильтруются/сортируются по объекту и датам,
+    # услуги — по объекту и позиции. IF NOT EXISTS делает безопасным
+    # повторный запуск при каждом старте.
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_bookings_cottage_checkin ON bookings (cottage_id, check_in)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_bookings_checkout        ON bookings (check_out)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_bookings_status          ON bookings (status)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_orders_cottage           ON service_orders (cottage_id)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_orders_position          ON service_orders (position)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_cottages_position        ON cottages (position)")
+
     conn.commit()
     cur.close()
     conn.close()
@@ -311,7 +321,7 @@ def serialize_booking(row) -> dict:
 def get_rate(cur) -> float:
     cur.execute("SELECT value FROM settings WHERE key = 'rate'")
     row = cur.fetchone()
-    return float(row["value"]) if row else 500.0
+    return float(row["value"]) if row else 85.0
 
 
 app.jinja_env.filters["fmtdate"] = fmt_date
@@ -1505,60 +1515,6 @@ def export_excel_cottage(cottage_id):
         as_attachment=True, download_name=f"{cottage['name']}_{date.today()}.xlsx")
 
 
-# ── CSV export ────────────────────────────────────────────
-
-CSV_HEADERS = ["№","Коттедж/Номер","Гость","Заезд","Выезд",
-               "Ночей","Гостей","Скидка (сом)","Сумма (сом)","Аванс (сом)","Сумма ($)","Заметки"]
-
-def _to_csv(bookings):
-    buf=io.StringIO()
-    writer=csv.writer(buf, delimiter=";")
-    writer.writerow(CSV_HEADERS)
-    for seq, b in enumerate(bookings, 1):
-        discount=round(b.get("discount") or 0)
-        writer.writerow([seq,b["cottage_name"],b["guest_name"],
-            fmt_date(b["check_in"]),fmt_date(b["check_out"]),
-            b["nights"],b["guests"],
-            f"-{discount}" if discount else "—",
-            round(_effective_total(b)),round(b.get("deposit_paid") or 0),
-            _effective_usd(b),b.get("notes","")])
-    writer.writerow([])
-    writer.writerow(["ИТОГО","","","","",
-        sum(b["nights"] for b in bookings),"","",
-        round(sum(_effective_total(b) for b in bookings)),
-        round(sum((b.get("deposit_paid") or 0) for b in bookings)),
-        round(sum(_effective_usd(b) for b in bookings)),""])
-    buf.seek(0)
-    return buf
-
-@app.route("/export/csv")
-@require_perm("excel")
-def export_csv():
-    conn=get_db(); cur=conn.cursor()
-    cur.execute("SELECT * FROM bookings ORDER BY check_in")
-    bookings=[serialize_booking(r) for r in cur.fetchall()]
-    cur.close(); conn.close()
-    buf=_to_csv(bookings)
-    return send_file(io.BytesIO(buf.read().encode("utf-8-sig")),
-        mimetype="text/csv", as_attachment=True,
-        download_name=f"broni_{date.today()}.csv")
-
-@app.route("/export/csv/<int:cottage_id>")
-@require_perm("excel")
-def export_csv_cottage(cottage_id):
-    conn=get_db(); cur=conn.cursor()
-    cur.execute("SELECT * FROM cottages WHERE id=%s",(cottage_id,))
-    cottage=cur.fetchone()
-    if not cottage: cur.close();conn.close(); return jsonify({"error":"Не найдено"}),404
-    cur.execute("SELECT * FROM bookings WHERE cottage_id=%s ORDER BY check_in",(cottage_id,))
-    bookings=[serialize_booking(r) for r in cur.fetchall()]
-    cur.close(); conn.close()
-    buf=_to_csv(bookings)
-    return send_file(io.BytesIO(buf.read().encode("utf-8-sig")),
-        mimetype="text/csv", as_attachment=True,
-        download_name=f"{cottage['name']}_{date.today()}.csv")
-
-
 # ── Старт ─────────────────────────────────────────────────
 
 with app.app_context():
@@ -1666,4 +1622,5 @@ def export_excel_by_owner(owner_type):
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))
-    app.run(host="0.0.0.0", port=port, debug=True)
+    # Отладчик включается только явно (FLASK_DEBUG=1) — в проде должен быть выключен
+    app.run(host="0.0.0.0", port=port, debug=bool(os.environ.get("FLASK_DEBUG")))

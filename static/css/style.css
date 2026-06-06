@@ -76,8 +76,6 @@ header h1 { font-size: 1.4rem; font-weight: 700; }
   color: var(--primary);
 }
 
-/* Цена в тенге под долларом */
-.price-tenge { font-size: 0.8rem; color: var(--muted); font-weight: 400; margin-left: 4px; }
 .total-sub      { font-size: 0.85rem; color: var(--muted); margin-top: 2px; }
 .total-discount { font-size: 0.82rem; color: var(--success-dark); margin-top: 2px; }
 .total-extra    { font-size: 0.82rem; color: #d97706; margin-top: 2px; }
@@ -280,89 +278,6 @@ tbody.sortable-rows tr, #orders-body tr { cursor: grab; }
 .sortable-chosen { background: #f0f4ff !important; }
 .row-actions { display: flex; gap: 5px; }
 .row-actions .btn-sm { padding: 5px 9px; }
-
-/* ── Cottages grid (старое, на всякий) ── */
-.cottages-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-  gap: 24px;
-}
-
-.cottage-card {
-  background: var(--card);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow);
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  transition: box-shadow 0.2s;
-}
-.cottage-card:hover { box-shadow: 0 6px 24px rgba(0,0,0,0.12); }
-
-.card-header {
-  padding: 20px 20px 12px;
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  border-bottom: 1px solid var(--border);
-  gap: 8px;
-}
-.card-header h2 {
-  font-size: 1.1rem;
-  font-weight: 700;
-  word-break: break-word;
-  white-space: normal;
-  line-height: 1.3;
-}
-.card-actions { display: flex; gap: 6px; flex-shrink: 0; }
-
-.card-body { padding: 16px 20px; flex: 1; }
-
-/* Горизонтальный ряд — для коротких значений (тип, цена, вместимость) */
-.info-row {
-  display: flex;
-  flex-direction: row;
-  justify-content: space-between;
-  align-items: center;
-  padding: 7px 0;
-  border-bottom: 1px solid var(--border);
-  gap: 8px;
-}
-.info-row:last-child { border-bottom: none; }
-.label  { color: var(--muted); font-size: 0.78rem; font-weight: 500; white-space: nowrap; flex-shrink: 0; }
-.value  { font-weight: 600; font-size: 0.9rem; text-align: right; }
-
-/* Вертикальный стек — для длинных значений (имя, контакты) */
-.info-row-stack {
-  display: flex;
-  flex-direction: column;
-  padding: 7px 0;
-  border-bottom: 1px solid var(--border);
-  gap: 3px;
-}
-.info-row-stack:last-child { border-bottom: none; }
-.value-full {
-  font-weight: 600;
-  font-size: 0.88rem;
-  word-break: break-word;
-  white-space: normal;
-  line-height: 1.4;
-}
-
-.description {
-  margin-top: 12px;
-  font-size: 0.85rem;
-  color: var(--muted);
-  line-height: 1.5;
-}
-
-.card-footer {
-  padding: 16px 20px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  border-top: 1px solid var(--border);
-}
 
 /* ── Cottage info bar ── */
 .cottage-info-bar {
@@ -673,7 +588,6 @@ textarea { resize: vertical; }
   .rate-value { font-size: 0.92rem; }
 
   .filter-btn    { font-size: 0.8rem; padding: 6px 12px; }
-  .cottages-grid { gap: 16px; }
 }
 
 /* ══════════════════════════════════════════
@@ -716,12 +630,6 @@ textarea { resize: vertical; }
   /* Основной контент */
   main { padding: 16px; }
 
-  /* Карточки — одна колонка */
-  .cottages-grid {
-    grid-template-columns: 1fr;
-    gap: 16px;
-  }
-
   /* Инфо-бар коттеджа */
   .cottage-info-bar {
     padding: 12px 16px;
@@ -729,11 +637,6 @@ textarea { resize: vertical; }
     font-size: 0.88rem;
     flex-direction: column;
   }
-
-  /* Кнопки на карточке */
-  .card-footer { padding: 12px 16px; gap: 8px; }
-  .card-header { padding: 14px 16px 10px; }
-  .card-body   { padding: 12px 16px; }
 
   /* Фильтр объектов */
   .owner-filter { gap: 6px; margin-bottom: 16px; }

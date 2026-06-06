@@ -593,6 +593,19 @@ def _do_seed(cur, conn, timedelta, random):
     })
 
 
+@app.route("/clear-demo", methods=["POST"])
+@require_perm("bookings_edit")
+def clear_demo():
+    """Удаляет все записи, созданные через seed-demo."""
+    conn = get_db(); cur = conn.cursor()
+    cur.execute("DELETE FROM bookings WHERE notes LIKE 'Демо-бронь%'")
+    b_count = cur.rowcount
+    cur.execute("DELETE FROM service_orders WHERE notes LIKE 'Демо-заказ%'")
+    o_count = cur.rowcount
+    conn.commit(); cur.close(); conn.close()
+    return jsonify({"ok": True, "message": f"Удалено {b_count} броней и {o_count} заказов."})
+
+
 # ── Bookings ──────────────────────────────────────────────
 
 @app.route("/bookings", methods=["GET"])

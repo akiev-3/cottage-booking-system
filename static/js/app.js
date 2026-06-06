@@ -38,6 +38,18 @@ function initSortable() {
 document.addEventListener('DOMContentLoaded', initSortable);
 
 // ── Демо-данные ──
+async function clearDemo() {
+  if (!confirm('Удалить все демо-брони и демо-заказы?')) return;
+  showToast('Удаление…');
+  try {
+    const res  = await fetch('/clear-demo', { method: 'POST' });
+    const data = await res.json();
+    if (!res.ok || !data.ok) { showToast('Ошибка: ' + (data.error || res.status), 'error'); return; }
+    showToast(data.message, 'success');
+    setTimeout(() => location.reload(), 1000);
+  } catch (e) { showToast('Ошибка сети', 'error'); }
+}
+
 async function seedDemo() {
   if (!confirm('Сгенерировать тестовые брони и заказы услуг для всех объектов компании?')) return;
   showToast('Генерация данных…');

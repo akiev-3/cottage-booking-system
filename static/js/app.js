@@ -78,17 +78,6 @@ function showView(type, btn) {
   showView(idx >= 0 ? saved : 'all', btn);
 })();
 
-// ── Excel дропдаун ──
-function toggleExcelMenu(e) {
-  e.stopPropagation();
-  const menu = document.getElementById('excel-menu');
-  menu.style.display = menu.style.display === 'none' ? 'block' : 'none';
-}
-document.addEventListener('click', () => {
-  const menu = document.getElementById('excel-menu');
-  if (menu) menu.style.display = 'none';
-});
-
 // ── Toast ──
 function showToast(msg, type = '') {
   const t = document.getElementById('toast');

@@ -35,7 +35,7 @@ USERS = {
 ROLE_PERMS = {
     "admin":    {"bookings_view", "bookings_edit", "services_view", "services_edit",
                  "services_delete", "excel", "manage_users"},
-    "services": {"services_view", "services_edit"},
+    "services": {"services_view", "services_edit", "services_delete"},
     "reports":  {"services_view", "bookings_view", "excel"},
 }
 
@@ -120,12 +120,20 @@ def init_db():
     cur.execute("UPDATE cottages SET owner_type='Компания',  property_type='Номер отеля' WHERE owner_type = 'Номера отеля'")
     cur.execute("UPDATE cottages SET owner_type='Собственник'                            WHERE owner_type = 'Собственник' AND property_type IS NULL")
     cur.execute("UPDATE cottages SET property_type='Коттедж' WHERE property_type IS NULL OR property_type = ''")
-    # Для собственников: перенести description → contacts (если contacts пусто)
-    cur.execute("""
-        UPDATE cottages
-        SET contacts = description, description = ''
-        WHERE owner_type = 'Собственник' AND (contacts IS NULL OR contacts = '') AND description != ''
-    """)
+    # Для собственников: перенести description → contacts (если contacts пусто).
+    # Выполняется однократно — флаг в settings предотвращает повторный запуск,
+    # который иначе затирал бы описание при каждом рестарте.
+    cur.execute("SELECT value FROM settings WHERE key = 'mig_private_desc'")
+    if not cur.fetchone():
+        cur.execute("""
+            UPDATE cottages
+            SET contacts = description, description = ''
+            WHERE owner_type = 'Собственник' AND (contacts IS NULL OR contacts = '') AND description != ''
+        """)
+        cur.execute("""
+            INSERT INTO settings (key, value) VALUES ('mig_private_desc', 'done')
+            ON CONFLICT (key) DO NOTHING
+        """)
     cur.execute("""
         CREATE TABLE IF NOT EXISTS bookings (
             id                   SERIAL PRIMARY KEY,
@@ -950,12 +958,8 @@ def delete_service_order(order_id):
     return jsonify({"ok": True})
 
 
-def _build_services_excel(orders, sheet_title):
-    """Строит Excel-файл по списку заказов услуг."""
-    wb  = Workbook()
-    ws  = wb.active
-    ws.title = sheet_title[:31]
-
+def _write_services_to_sheet(ws, orders):
+    """Записывает данные заказов услуг в существующий лист."""
     headers    = ["№","Дата начала","Дата окончания","Категория","Услуга",
                   "Коттедж","Кол-во","Цена (сом)","Итого (сом)","Гос. номер","Заметки"]
     col_widths = [6, 14, 16, 18, 34, 22, 8, 13, 14, 16, 30]
@@ -971,7 +975,8 @@ def _build_services_excel(orders, sheet_title):
         ws.column_dimensions[cell.column_letter].width = w
     ws.row_dimensions[1].height = 22
 
-    for seq, (ri, o) in enumerate(zip(range(2, 2 + len(orders)), orders), 1):
+    for seq, o in enumerate(orders, 1):
+        ri = seq + 1
         values = [
             seq,
             fmt_date(o["service_date"]) if o.get("service_date") else "",
@@ -1006,6 +1011,14 @@ def _build_services_excel(orders, sheet_title):
 
     ws.freeze_panes = "A2"
     ws.auto_filter.ref = f"A1:K{max(len(orders),1)+1}"
+
+
+def _build_services_excel(orders, sheet_title):
+    """Строит Excel-файл по списку заказов услуг."""
+    wb = Workbook()
+    ws = wb.active
+    ws.title = sheet_title[:31]
+    _write_services_to_sheet(ws, orders)
     return wb
 
 
@@ -1063,6 +1076,45 @@ def export_excel_services_by_type(obj_key):
         mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         as_attachment=True,
         download_name=f"uslugi_{obj_key}_{date.today()}.xlsx")
+
+
+# Названия листов без эмодзи (Excel не поддерживает эмодзи в именах листов)
+_SVC_SHEET_TITLES = {
+    "Коттедж":               "Коттеджи",
+    "Номер отеля":           "Номера отеля",
+    "Квартира":              "Квартиры",
+    "Номер для сотрудников": "Сотрудники",
+    "Собственник":           "Собственники",
+}
+
+
+@app.route("/export/excel/services-all")
+@require_perm("excel")
+def export_excel_services_all():
+    """Единый Excel по всем услугам: отдельный лист на каждый тип объекта."""
+    conn = get_db(); cur = conn.cursor()
+    orders = _fetch_service_orders(cur)
+    cur.close(); conn.close()
+
+    wb = Workbook()
+    first = True
+    for obj_name, _key, _label in OBJECT_TYPES:
+        type_orders = [o for o in orders if o.get("object_type") == obj_name]
+        if not type_orders:
+            continue
+        ws = wb.active if first else wb.create_sheet()
+        if first: first = False
+        ws.title = _SVC_SHEET_TITLES.get(obj_name, obj_name)[:31]
+        _write_services_to_sheet(ws, type_orders)
+
+    if first:
+        wb.active.title = "Услуги"
+
+    buf = io.BytesIO(); wb.save(buf); buf.seek(0)
+    return send_file(buf,
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        as_attachment=True,
+        download_name=f"uslugi_{date.today()}.xlsx")
 
 
 # ── Excel helpers ─────────────────────────────────────────
@@ -1131,63 +1183,48 @@ def _write_totals(ws, bookings, total_row):
 @app.route("/export/excel")
 @require_perm("excel")
 def export_excel():
+    """Единый Excel по броням: только объекты компании, отдельный лист на каждый тип."""
     conn = get_db(); cur = conn.cursor()
-    cur.execute("SELECT * FROM cottages ORDER BY position, id")
-    cottages = [dict(r) for r in cur.fetchall()]
-    cur.execute("SELECT * FROM bookings ORDER BY check_in")
-    all_bookings = [serialize_booking(r) for r in cur.fetchall()]
+    # Исключаем собственников — только объекты компании
+    cur.execute("SELECT * FROM cottages WHERE owner_type='Компания' ORDER BY position, id")
+    company_cottages = [dict(r) for r in cur.fetchall()]
+    cottage_ids = [c["id"] for c in company_cottages]
+
+    if cottage_ids:
+        cur.execute("SELECT * FROM bookings WHERE cottage_id = ANY(%s) ORDER BY check_in", (cottage_ids,))
+        all_bookings = [serialize_booking(r) for r in cur.fetchall()]
+    else:
+        all_bookings = []
     cur.close(); conn.close()
 
     wb = Workbook()
+    first = True
 
-    # Лист: Все брони
-    ws = wb.active; ws.title = "Все брони"
-    _write_headers(ws, row=1)
-    last = _write_rows(ws, all_bookings, start=2)
-    if all_bookings: _write_totals(ws, all_bookings, last+1)
-    ws.freeze_panes = "A2"
-    ws.auto_filter.ref = f"A1:L{last}"
+    # Отдельный лист на каждый тип объекта компании (без сводки и без частников)
+    _BOOKING_TYPE_SHEETS = [
+        ("Коттедж",               "Коттеджи"),
+        ("Номер отеля",           "Номера отеля"),
+        ("Квартира",              "Квартиры"),
+        ("Номер для сотрудников", "Сотрудники"),
+    ]
+    for prop_type, sheet_title in _BOOKING_TYPE_SHEETS:
+        type_ids      = {c["id"] for c in company_cottages if c["property_type"] == prop_type}
+        type_bookings = [b for b in all_bookings if b["cottage_id"] in type_ids]
+        if not type_bookings:
+            continue
+        ws = wb.active if first else wb.create_sheet()
+        if first: first = False
+        ws.title = sheet_title[:31]
+        _write_headers(ws, row=1)
+        last = _write_rows(ws, type_bookings, start=2)
+        if type_bookings: _write_totals(ws, type_bookings, last + 1)
+        ws.freeze_panes = "A2"
+        ws.auto_filter.ref = f"A1:L{last}"
 
-    # Лист: Сводка — только коттеджи и номера компании (без частников)
-    company_cottages = [c for c in cottages if c.get("owner_type") == "Компания"]
-    ws2 = wb.create_sheet("Сводка")
-    sh  = ["№","Объект","Тип","Вместимость","$/сутки","Броней","Ночей","Выручка ($)","Выручка (сом)"]
-    sw  = [5,22,14,13,12,9,10,14,16]
-    hf  = Font(bold=True,color="FFFFFF"); hfill=_header_fill("4F6EF7")
-    border=_thin_border(); center=Alignment(horizontal="center",vertical="center")
-    for col,(h,w) in enumerate(zip(sh,sw),1):
-        cell=ws2.cell(row=1,column=col,value=h)
-        cell.font=hf;cell.fill=hfill;cell.alignment=center;cell.border=border
-        ws2.column_dimensions[cell.column_letter].width=w
-    for seq,(ri,c) in enumerate(zip(range(2, 2+len(company_cottages)), company_cottages), 1):
-        cb=[b for b in all_bookings if b["cottage_id"]==c["id"]]
-        vals=[seq, c["name"], c.get("property_type","Коттедж"),
-              c["capacity"], c["price_per_day"], len(cb),
-              sum(b["nights"] for b in cb),
-              round(sum(b["total"] for b in cb)),
-              round(sum(b["total_som"] or 0 for b in cb))]
-        for col,val in enumerate(vals,1):
-            cell=ws2.cell(row=ri,column=col,value=val)
-            cell.border=border
-            if col>1: cell.alignment=Alignment(horizontal="center")
+    if first:   # данных нет
+        wb.active.title = "Брони"
 
-    # Листы по коттеджам
-    for c in cottages:
-        ws3 = wb.create_sheet(c["name"][:28])
-        ws3.merge_cells("A1:L1")
-        tc=ws3["A1"]
-        tc.value=f"{c['name']}  |  до {c['capacity']} чел.  |  ${int(c['price_per_day'])}/сутки"
-        tc.font=Font(bold=True,size=12,color="2C3E50")
-        tc.fill=PatternFill("solid",fgColor="EEF2FF")
-        tc.alignment=Alignment(horizontal="left",vertical="center")
-        ws3.row_dimensions[1].height=26
-        _write_headers(ws3, row=2)
-        cb=[b for b in all_bookings if b["cottage_id"]==c["id"]]
-        last=_write_rows(ws3, cb, start=3)
-        if cb: _write_totals(ws3, cb, last+1)
-        ws3.freeze_panes="A3"
-
-    buf=io.BytesIO(); wb.save(buf); buf.seek(0)
+    buf = io.BytesIO(); wb.save(buf); buf.seek(0)
     return send_file(buf,
         mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         as_attachment=True, download_name=f"broni_{date.today()}.xlsx")

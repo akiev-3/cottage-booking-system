@@ -60,15 +60,7 @@
     <h1>🛎️ Услуги</h1>
   </div>
   <div class="header-right">
-    {% if can('excel') %}
-    <button class="btn btn-excel" onclick="toggleSvcExcel(event)">⬇️ Excel ▾</button>
-    <div id="svc-excel-menu" class="dropdown-menu" style="display:none">
-      <a href="/export/excel/services" class="dropdown-item">📊 Все услуги</a>
-      {% for name, key, label in object_types %}
-      <a href="/export/excel/services/{{ key }}" class="dropdown-item">{{ label }}</a>
-      {% endfor %}
-    </div>
-    {% endif %}
+    {% if can('excel') %}<a href="/export/excel/services-all" class="btn btn-excel">⬇️ Excel</a>{% endif %}
     {% if can('services_edit') %}
     <button class="btn btn-success" onclick="openModal('modal-order')">+ Новый заказ</button>
     {% endif %}
@@ -547,16 +539,6 @@ async function submitAddService(e) {
   setTimeout(()=>location.reload(),600);
 }
 
-// Excel дропдаун
-function toggleSvcExcel(e) {
-  e.stopPropagation();
-  const m = document.getElementById('svc-excel-menu');
-  m.style.display = m.style.display === 'none' ? 'block' : 'none';
-}
-document.addEventListener('click', () => {
-  const m = document.getElementById('svc-excel-menu');
-  if (m) m.style.display = 'none';
-});
 
 // Инициализация
 document.getElementById('order-date').value = new Date().toISOString().slice(0,10);

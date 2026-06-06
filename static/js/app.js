@@ -3,6 +3,40 @@ function openModal(id) { document.getElementById(id).classList.add('open'); }
 function closeModal(id) { document.getElementById(id).classList.remove('open'); }
 function closeModalOverlay(e, id) { if (e.target.id === id) closeModal(id); }
 
+// ── Drag-and-drop сортировка строк ──
+function renumberRows(tbody) {
+  let n = 0;
+  tbody.querySelectorAll('tr').forEach(tr => {
+    if (tr.style.display === 'none') return;
+    const cell = tr.querySelector('td.num-col');
+    if (cell) cell.textContent = ++n;
+  });
+}
+
+function initSortable() {
+  if (typeof Sortable === 'undefined') return;
+  document.querySelectorAll('tbody.sortable-rows').forEach(tbody => {
+    Sortable.create(tbody, {
+      animation: 150,
+      handle: 'td',                 // тянуть за любую ячейку
+      filter: '.row-actions, button, a, input',  // кроме кнопок
+      preventOnFilter: false,
+      onEnd: async () => {
+        renumberRows(tbody);
+        const ids = Array.from(tbody.querySelectorAll('tr'))
+                         .map(tr => (tr.id || '').replace('card-', ''))
+                         .filter(Boolean);
+        const url = tbody.dataset.reorder;
+        try {
+          await fetch(url, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ ids }) });
+          showToast('Порядок сохранён', 'success');
+        } catch (_) { showToast('Не удалось сохранить порядок', 'error'); }
+      }
+    });
+  });
+}
+document.addEventListener('DOMContentLoaded', initSortable);
+
 // ── Демо-данные ──
 async function seedDemo() {
   if (!confirm('Сгенерировать тестовые брони и заказы услуг для всех объектов компании?')) return;

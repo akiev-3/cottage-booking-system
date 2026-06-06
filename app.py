@@ -64,6 +64,8 @@ def init_db():
     cur.execute("ALTER TABLE cottages ADD COLUMN IF NOT EXISTS cottage_size  VARCHAR(20)  DEFAULT ''")
     cur.execute("ALTER TABLE cottages ADD COLUMN IF NOT EXISTS rooms         INT          DEFAULT 0")
     cur.execute("ALTER TABLE cottages ADD COLUMN IF NOT EXISTS floor         VARCHAR(20)  DEFAULT ''")
+    cur.execute("ALTER TABLE cottages ADD COLUMN IF NOT EXISTS position      INT          DEFAULT 0")
+    cur.execute("UPDATE cottages SET position = id WHERE position = 0 OR position IS NULL")
     # Миграция данных: старые owner_type → новые owner_type + property_type
     cur.execute("UPDATE cottages SET owner_type='Компания',  property_type='Коттедж'     WHERE owner_type IN ('Алма-Ата','Коттеджи')")
     cur.execute("UPDATE cottages SET owner_type='Компания',  property_type='Номер отеля' WHERE owner_type = 'Номера отеля'")
@@ -173,6 +175,8 @@ def init_db():
     # Миграция: end_date + object_type (тип объекта на момент заказа)
     cur.execute("ALTER TABLE service_orders ADD COLUMN IF NOT EXISTS end_date DATE DEFAULT NULL")
     cur.execute("ALTER TABLE service_orders ADD COLUMN IF NOT EXISTS object_type VARCHAR(50) DEFAULT ''")
+    cur.execute("ALTER TABLE service_orders ADD COLUMN IF NOT EXISTS position INT DEFAULT 0")
+    cur.execute("UPDATE service_orders SET position = id WHERE position = 0 OR position IS NULL")
     # Бэкфилл object_type из связанного объекта
     cur.execute("""
         UPDATE service_orders so SET object_type = CASE
@@ -245,7 +249,7 @@ def logout():
 def index():
     conn = get_db()
     cur  = conn.cursor()
-    cur.execute("SELECT * FROM cottages ORDER BY id")
+    cur.execute("SELECT * FROM cottages ORDER BY position, id")
     cottages = [dict(r) for r in cur.fetchall()]
     # Счётчик броней по каждому объекту
     cur.execute("SELECT cottage_id, COUNT(*) AS cnt FROM bookings GROUP BY cottage_id")
@@ -290,10 +294,12 @@ def create_cottage():
     conn = get_db(); cur = conn.cursor()
     owner_type    = body.get("owner_type", "Компания")
     property_type = body.get("property_type", "Коттедж")
+    cur.execute("SELECT COALESCE(MAX(position),0)+1 AS p FROM cottages")
+    pos = cur.fetchone()["p"]
     cur.execute("""
         INSERT INTO cottages (name, capacity, price_per_day, description, contacts,
-                              owner_type, property_type, owner_name, cottage_size, rooms, floor)
-        VALUES (%s,%s,%s,%s,%s, %s,%s,%s, %s,%s,%s) RETURNING *
+                              owner_type, property_type, owner_name, cottage_size, rooms, floor, position)
+        VALUES (%s,%s,%s,%s,%s, %s,%s,%s, %s,%s,%s, %s) RETURNING *
     """, (body["name"],
           int(body.get("capacity") or 0),
           float(body.get("price_per_day") or 0),
@@ -303,7 +309,7 @@ def create_cottage():
           body.get("owner_name",""),
           body.get("cottage_size",""),
           int(body.get("rooms") or 0),
-          body.get("floor","")))
+          body.get("floor",""), pos))
     cottage = dict(cur.fetchone())
     conn.commit(); cur.close(); conn.close()
     return jsonify(cottage), 201
@@ -346,6 +352,38 @@ def delete_cottage(cottage_id):
     cur.execute("DELETE FROM cottages WHERE id = %s", (cottage_id,))
     conn.commit(); cur.close(); conn.close()
     return jsonify({"ok": True})
+
+
+def _reorder(table, ids):
+    """Перестановка: новые id в порядке ids получают существующие позиции (в том же диапазоне)."""
+    if not ids:
+        return 0
+    conn = get_db(); cur = conn.cursor()
+    cur.execute(f"SELECT position FROM {table} WHERE id = ANY(%s)", (ids,))
+    positions = sorted(r["position"] for r in cur.fetchall())
+    # если позиций меньше чем id (рассинхрон) — добиваем по порядку
+    while len(positions) < len(ids):
+        positions.append((positions[-1] if positions else 0) + 1)
+    for new_pos, oid in zip(positions, ids):
+        cur.execute(f"UPDATE {table} SET position = %s WHERE id = %s", (new_pos, oid))
+    conn.commit(); cur.close(); conn.close()
+    return len(ids)
+
+
+@app.route("/cottages/reorder", methods=["POST"])
+@login_required
+def reorder_cottages():
+    ids = [int(x) for x in (request.json.get("ids") or [])]
+    n = _reorder("cottages", ids)
+    return jsonify({"ok": True, "updated": n})
+
+
+@app.route("/service-orders/reorder", methods=["POST"])
+@login_required
+def reorder_service_orders():
+    ids = [int(x) for x in (request.json.get("ids") or [])]
+    n = _reorder("service_orders", ids)
+    return jsonify({"ok": True, "updated": n})
 
 
 # ── Демо-данные ───────────────────────────────────────────
@@ -630,7 +668,7 @@ def services_page():
         SELECT so.*, c.name as cname, c.owner_type as c_owner, c.property_type as c_ptype
         FROM service_orders so
         LEFT JOIN cottages c ON c.id = so.cottage_id
-        ORDER BY so.service_date DESC, so.id DESC
+        ORDER BY so.position, so.id
     """)
     orders = [dict(r) for r in cur.fetchall()]
     for o in orders:
@@ -748,8 +786,9 @@ def create_service_order():
     cur.execute("""
         INSERT INTO service_orders
             (service_id, service_name, category, cottage_id, cottage_name,
-             service_date, end_date, quantity, price, total, plate, notes, object_type)
-        VALUES (%s,%s,%s,%s,%s, %s,%s,%s,%s,%s,%s,%s,%s) RETURNING *
+             service_date, end_date, quantity, price, total, plate, notes, object_type, position)
+        VALUES (%s,%s,%s,%s,%s, %s,%s,%s,%s,%s,%s,%s,%s,
+                (SELECT COALESCE(MAX(position),0)+1 FROM service_orders)) RETURNING *
     """, (svc["id"], service_name, svc["category"],
           cottage_id, cottage_name,
           body["service_date"], end_date, qty, price, total,
@@ -841,10 +880,10 @@ def _fetch_service_orders(cur, object_type=None):
             WHERE COALESCE(NULLIF(so.object_type, ''),
                            CASE WHEN c.owner_type = 'Собственник' THEN 'Собственник'
                                 ELSE c.property_type END) = %s
-            ORDER BY so.service_date, so.id
+            ORDER BY so.position, so.id
         """, (object_type,))
     else:
-        cur.execute("SELECT * FROM service_orders ORDER BY service_date, id")
+        cur.execute("SELECT * FROM service_orders ORDER BY position, id")
     orders = [dict(r) for r in cur.fetchall()]
     for o in orders:
         for f in ("service_date", "end_date"):
@@ -953,7 +992,7 @@ def _write_totals(ws, bookings, total_row):
 @login_required
 def export_excel():
     conn = get_db(); cur = conn.cursor()
-    cur.execute("SELECT * FROM cottages ORDER BY id")
+    cur.execute("SELECT * FROM cottages ORDER BY position, id")
     cottages = [dict(r) for r in cur.fetchall()]
     cur.execute("SELECT * FROM bookings ORDER BY check_in")
     all_bookings = [serialize_booking(r) for r in cur.fetchall()]
@@ -1119,7 +1158,7 @@ def export_excel_by_owner(owner_type):
     # ── Собственники — справочник карточек, а не брони ────
     if owner_type == "private":
         conn = get_db(); cur = conn.cursor()
-        cur.execute("SELECT * FROM cottages WHERE owner_type = 'Собственник' ORDER BY name")
+        cur.execute("SELECT * FROM cottages WHERE owner_type = 'Собственник' ORDER BY position, id")
         cottages = [dict(r) for r in cur.fetchall()]
         cur.close(); conn.close()
 
@@ -1158,7 +1197,7 @@ def export_excel_by_owner(owner_type):
 
     # ── Коттеджи / Номера отеля — брони ───────────────────
     conn = get_db(); cur = conn.cursor()
-    cur.execute(f"SELECT * FROM cottages WHERE {where_clause} ORDER BY name")
+    cur.execute(f"SELECT * FROM cottages WHERE {where_clause} ORDER BY position, id")
     cottages = [dict(r) for r in cur.fetchall()]
     cottage_ids = [c["id"] for c in cottages]
 

@@ -254,6 +254,11 @@ main { padding: 32px; max-width: 1300px; margin: 0 auto; }
 }
 .muted-sm { color: var(--muted); font-size: 0.8rem; }
 .num-col { width: 44px; text-align: center; color: var(--muted); }
+
+/* Drag-and-drop */
+tbody.sortable-rows tr, #orders-body tr { cursor: grab; }
+.sortable-ghost { opacity: 0.4; background: #eef2ff !important; }
+.sortable-chosen { background: #f0f4ff !important; }
 .row-actions { display: flex; gap: 5px; }
 .row-actions .btn-sm { padding: 5px 9px; }
 

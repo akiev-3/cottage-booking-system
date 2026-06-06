@@ -8,6 +8,7 @@
 <link rel="manifest" href="/static/manifest.json">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#4f6ef7">
+<script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
 <style>
   .sel { width:100%;padding:10px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:0.9rem;background:var(--bg);color:var(--text); }
   .sel:focus { outline:none; border-color:var(--primary); background:#fff; }
@@ -543,6 +544,34 @@ onOwnerTypeChange();
   const btns  = document.querySelectorAll('#tab-orders .filter-btn');
   const idx   = order.indexOf(ordFilter);
   if (idx >= 0 && btns[idx]) filterOrders(ordFilter, btns[idx]);
+})();
+
+// ── Drag-and-drop сортировка заказов ──
+(function initOrdersSortable() {
+  const tbody = document.getElementById('orders-body');
+  if (!tbody || typeof Sortable === 'undefined') return;
+  Sortable.create(tbody, {
+    animation: 150,
+    handle: 'td',
+    filter: 'button, a',
+    preventOnFilter: false,
+    onEnd: async () => {
+      // перенумеровать видимые строки
+      let n = 0;
+      tbody.querySelectorAll('tr').forEach(tr => {
+        if (tr.style.display === 'none') return;
+        const cell = tr.querySelector('td');
+        if (cell) cell.textContent = ++n;
+      });
+      const ids = Array.from(tbody.querySelectorAll('tr'))
+                       .map(tr => (tr.id || '').replace('orow-', ''))
+                       .filter(Boolean);
+      try {
+        await fetch('/service-orders/reorder', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ids})});
+        showToast('Порядок сохранён','success');
+      } catch(_) { showToast('Ошибка сохранения порядка','error'); }
+    }
+  });
 })();
 </script>
 </body>

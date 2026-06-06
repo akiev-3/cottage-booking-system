@@ -83,7 +83,6 @@ function editBooking(id, b) {
   document.getElementById('booking-submit-btn').textContent  = 'Сохранить';
   document.getElementById('booking-guest-name').value = b.guest_name || '';
   document.getElementById('booking-guests').value     = b.guests || '';
-  document.getElementById('booking-rate').value       = b.rate || '';
   document.getElementById('booking-discount').value   = b.discount || '';
   document.getElementById('booking-deposit').value    = b.deposit_paid || '';
   document.getElementById('booking-extra').value      = b.extra_per_night || '';
@@ -99,30 +98,29 @@ function editBooking(id, b) {
 function calcTotal() {
   const ci        = document.getElementById('booking-checkin').value;
   const co        = document.getElementById('booking-checkout').value;
-  const rate      = parseFloat(document.getElementById('booking-rate').value);
-  const discount  = parseFloat(document.getElementById('booking-discount').value) || 0;
-  const extraNight = parseFloat(document.getElementById('booking-extra').value) || 0;
-  if (!ci || !co || !rate) return;
+  const discount  = parseFloat(document.getElementById('booking-discount').value) || 0;   // сомы
+  const extraNight = parseFloat(document.getElementById('booking-extra').value) || 0;      // сомы
+  if (!ci || !co) return;
   const nights      = Math.round((new Date(co) - new Date(ci)) / 86400000);
   const block       = document.getElementById('total-block');
   if (nights <= 0)  { block.style.display = 'none'; return; }
   const extraTotal  = extraNight * nights;
-  const totalBefore = nights * PRICE_PER_DAY + extraTotal;
-  const totalUsd    = Math.max(0, totalBefore - discount);
-  const totalSom    = Math.round(totalUsd * rate);
-  document.getElementById('total-usd').textContent    = `$${totalUsd.toLocaleString('ru-RU')}`;
-  document.getElementById('total-tenge').textContent  = `≈ ${totalSom.toLocaleString('ru-RU')} сом`;
+  const totalBefore = nights * PRICE_PER_DAY + extraTotal;       // сомы
+  const totalSom    = Math.max(0, totalBefore - discount);       // сомы
+  const totalUsd    = RATE ? Math.round(totalSom / RATE) : 0;    // $ по глобальному курсу
+  document.getElementById('total-usd').textContent    = `${totalSom.toLocaleString('ru-RU')} сом`;
+  document.getElementById('total-tenge').textContent  = RATE ? `≈ $${totalUsd.toLocaleString('ru-RU')}` : '';
   document.getElementById('total-nights').textContent = `${nights} ночей`;
   const discLine = document.getElementById('total-discount-line');
   if (discount > 0) {
-    discLine.textContent = `Скидка -$${discount} · было $${totalBefore.toLocaleString('ru-RU')}`;
+    discLine.textContent = `Скидка -${discount.toLocaleString('ru-RU')} сом · было ${totalBefore.toLocaleString('ru-RU')} сом`;
     discLine.style.display = 'block';
   } else {
     discLine.style.display = 'none';
   }
   const extraLine = document.getElementById('total-extra-line');
   if (extraTotal > 0) {
-    extraLine.textContent = `Доп. гости +$${extraNight}/ночь × ${nights} = $${extraTotal.toLocaleString('ru-RU')}`;
+    extraLine.textContent = `Доп. гости +${extraNight.toLocaleString('ru-RU')} сом/ночь × ${nights} = ${extraTotal.toLocaleString('ru-RU')} сом`;
     extraLine.style.display = 'block';
   } else {
     extraLine.style.display = 'none';
@@ -132,8 +130,6 @@ function calcTotal() {
 
 async function submitBookingPage(e) {
   e.preventDefault();
-  const rate = parseFloat(document.getElementById('booking-rate').value);
-  if (!rate || rate <= 0) { showToast('Введите курс доллара', 'error'); return; }
   const ci = document.getElementById('booking-checkin').value;
   const co = document.getElementById('booking-checkout').value;
   if (!ci || !co) { showToast('Выберите даты заезда и выезда', 'error'); return; }
@@ -146,7 +142,6 @@ async function submitBookingPage(e) {
     check_in:   ci,
     check_out:  co,
     guests:     document.getElementById('booking-guests').value,
-    rate,
     discount:        parseFloat(document.getElementById('booking-discount').value) || 0,
     deposit_paid:    parseFloat(document.getElementById('booking-deposit').value) || 0,
     extra_per_night: parseFloat(document.getElementById('booking-extra').value) || 0,
@@ -167,4 +162,14 @@ async function deleteBooking(id) {
   await fetch(`/bookings/${id}`, { method: 'DELETE' });
   document.getElementById(`row-${id}`)?.remove();
   showToast('Бронь удалена');
+}
+
+// ── Аванс: ввод в долларах → пересчёт в сомы по глобальному курсу ──
+function depositFromUsd() {
+  const usdEl = document.getElementById('booking-deposit-usd');
+  const depEl = document.getElementById('booking-deposit');
+  if (!usdEl || !depEl) return;
+  const usd = parseFloat(usdEl.value);
+  if (usd > 0 && RATE) depEl.value = Math.round(usd * RATE);
+  else if (!usd) depEl.value = '';
 }

@@ -163,9 +163,37 @@ def init_db():
     """)
     cur.execute("""
         INSERT INTO settings (key, value)
-        VALUES ('rate', '500')
+        VALUES ('rate', '85')
         ON CONFLICT (key) DO NOTHING
     """)
+
+    # ── Однократная миграция валюты: $ → сомы ─────────────
+    # Основная валюта теперь сом. Все денежные поля переводятся в сомы:
+    #   • брони — по сохранённому в брони курсу (rate);
+    #   • цены объектов — по текущему глобальному курсу.
+    # Выполняется один раз (флаг som_migration_v1), иначе при каждом
+    # рестарте суммы повторно умножались бы на курс.
+    cur.execute("SELECT value FROM settings WHERE key = 'som_migration_v1'")
+    if not cur.fetchone():
+        cur.execute("SELECT value FROM settings WHERE key = 'rate'")
+        _r = cur.fetchone()
+        _global_rate = float(_r["value"]) if _r and _r["value"] else 85.0
+        # Брони: total хранился в $, total_som = $ × курс. Переводим всё в сомы.
+        cur.execute("""
+            UPDATE bookings SET
+                total                 = ROUND(COALESCE(total_som, total * COALESCE(rate,1))),
+                total_before_discount = ROUND(COALESCE(total_before_discount,0) * COALESCE(rate,1)),
+                discount              = ROUND(COALESCE(discount,0)              * COALESCE(rate,1)),
+                deposit_paid          = ROUND(COALESCE(deposit_paid,0)          * COALESCE(rate,1)),
+                extra_per_night       = ROUND(COALESCE(extra_per_night,0)       * COALESCE(rate,1))
+            WHERE rate IS NOT NULL AND rate > 0
+        """)
+        # После перевода сумма в сомах совпадает с total
+        cur.execute("UPDATE bookings SET total_som = total")
+        # Цены объектов: $ → сомы по глобальному курсу
+        cur.execute("UPDATE cottages SET price_per_day = ROUND(price_per_day * %s) WHERE price_per_day > 0",
+                    (_global_rate,))
+        cur.execute("INSERT INTO settings (key, value) VALUES ('som_migration_v1', 'done') ON CONFLICT (key) DO NOTHING")
 
     # ── Прайс-лист услуг ──────────────────────────────────
     cur.execute("""
@@ -667,13 +695,13 @@ def create_booking():
         return jsonify({"error": f"Даты пересекаются с бронью #{conflict['id']} ({fmt_date(conflict['check_in'])} – {fmt_date(conflict['check_out'])})"}), 409
 
     nights          = (co - ci).days
-    extra_per_night = max(0, float(body.get("extra_per_night") or 0))
-    total_before    = nights * cottage["price_per_day"] + extra_per_night * nights
-    discount        = max(0, float(body.get("discount") or 0))
-    total           = round(max(0, total_before - discount), 2)
-    rate            = float(body.get("rate") or get_rate(cur))
-    total_som       = round(total * rate)
-    deposit_paid    = max(0, float(body.get("deposit_paid") or 0))
+    extra_per_night = max(0, float(body.get("extra_per_night") or 0))      # сомы
+    total_before    = nights * cottage["price_per_day"] + extra_per_night * nights  # сомы
+    discount        = max(0, float(body.get("discount") or 0))             # сомы
+    total           = round(max(0, total_before - discount))               # сомы
+    rate            = get_rate(cur)        # глобальный курс — для пересчёта в $
+    total_som       = total                # учёт ведётся в сомах
+    deposit_paid    = max(0, float(body.get("deposit_paid") or 0))         # сомы
 
     cur.execute("""
         INSERT INTO bookings
@@ -740,13 +768,13 @@ def update_booking(booking_id):
         return jsonify({"error": f"Даты пересекаются с бронью #{conflict['id']} ({fmt_date(conflict['check_in'])} – {fmt_date(conflict['check_out'])})"}), 409
 
     nights          = (co - ci).days
-    extra_per_night = max(0, float(body.get("extra_per_night") if body.get("extra_per_night") is not None else existing.get("extra_per_night") or 0))
-    total_before    = nights * cottage["price_per_day"] + extra_per_night * nights
-    discount        = max(0, float(body.get("discount") if body.get("discount") is not None else existing["discount"] or 0))
-    total           = round(max(0, total_before - discount), 2)
-    rate            = float(body.get("rate") or existing["rate"] or get_rate(cur))
-    total_som       = round(total * rate)
-    deposit_paid    = max(0, float(body.get("deposit_paid") if body.get("deposit_paid") is not None else existing.get("deposit_paid") or 0))
+    extra_per_night = max(0, float(body.get("extra_per_night") if body.get("extra_per_night") is not None else existing.get("extra_per_night") or 0))  # сомы
+    total_before    = nights * cottage["price_per_day"] + extra_per_night * nights  # сомы
+    discount        = max(0, float(body.get("discount") if body.get("discount") is not None else existing["discount"] or 0))  # сомы
+    total           = round(max(0, total_before - discount))               # сомы
+    rate            = float(existing["rate"] or get_rate(cur))   # курс для пересчёта в $
+    total_som       = total                # учёт ведётся в сомах
+    deposit_paid    = max(0, float(body.get("deposit_paid") if body.get("deposit_paid") is not None else existing.get("deposit_paid") or 0))  # сомы
 
     cur.execute("""
         UPDATE bookings SET cottage_id=%s, cottage_name=%s, guest_name=%s, guests=%s,
@@ -831,8 +859,8 @@ def cottage_bookings_page(cottage_id):
     # Занятые диапазоны для подсветки в календаре
     booked_ranges = [{"from": b["check_in"], "to": b["check_out"]} for b in bookings if b.get("status") != "cancelled"]
     # Итоговые суммы: для отменённых учитывается только аванс
-    total_usd = round(sum(_effective_total(b) for b in bookings))
-    total_som = round(sum(_effective_som(b)   for b in bookings))
+    total_som = round(sum(_effective_total(b) for b in bookings))   # сомы (основная)
+    total_usd = round(sum(_effective_usd(b)   for b in bookings))   # $ эквивалент
     return render_template("cottage.html", cottage=dict(cottage),
                            bookings=bookings, today=today, rate=rate,
                            booked_ranges=booked_ranges,
@@ -1281,22 +1309,22 @@ def export_excel_services_all():
 # ── Excel helpers ─────────────────────────────────────────
 
 BOOK_HEADERS = ["№","Коттеджи / Квартиры / Номера","Гость","Заезд","Выезд",
-                "Ночей","Гостей","Скидка ($)","Доп. гости ($)","Сумма ($)","Аванс ($)","Сумма (сом)","Курс","Статус","Заметки"]
-BOOK_WIDTHS  = [6,30,22,13,13,8,8,11,13,13,11,14,8,12,30]
-CENTER_COLS  = {1,6,7,8,9,10,11,12,13,14}
+                "Ночей","Гостей","Скидка (сом)","Доп. гости (сом)","Сумма (сом)","Аванс (сом)","Сумма ($)","Статус","Заметки"]
+BOOK_WIDTHS  = [6,30,22,13,13,8,8,13,16,14,13,12,12,30]
+CENTER_COLS  = {1,6,7,8,9,10,11,12}
 
 _STATUS_LABELS = {"active":"Активна","cancelled":"Отменена","paid":"Оплачена"}
 
 def _effective_total(b):
-    """Для отменённых броней учитывается только аванс (невозвратный)."""
+    """Сумма в сомах. Для отменённых броней — только аванс (невозвратный)."""
     if b.get("status") == "cancelled":
         return float(b.get("deposit_paid") or 0)
     return float(b.get("total") or 0)
 
-def _effective_som(b):
-    if b.get("status") == "cancelled":
-        return round(_effective_total(b) * (b.get("rate") or 1))
-    return round(b.get("total_som") or 0)
+def _effective_usd(b):
+    """Долларовый эквивалент суммы по курсу брони."""
+    rate = float(b.get("rate") or 0)
+    return round(_effective_total(b) / rate) if rate else 0
 
 def _header_fill(color): return PatternFill("solid", fgColor=color)
 def _thin_border():
@@ -1304,18 +1332,17 @@ def _thin_border():
     return Border(left=s, right=s, top=s, bottom=s)
 
 def _booking_row(b, seq_num):
-    discount = b.get("discount") or 0
-    extra    = round((b.get("extra_per_night") or 0) * (b.get("nights") or 0), 2)
+    discount = round(b.get("discount") or 0)
+    extra    = round((b.get("extra_per_night") or 0) * (b.get("nights") or 0))
     return [
         seq_num, b["cottage_name"], b["guest_name"],
         fmt_date(b["check_in"]), fmt_date(b["check_out"]),
         b["nights"], b["guests"],
-        f"-${discount}" if discount else "—",
+        f"-{discount}" if discount else "—",
         extra if extra else "—",
-        _effective_total(b),
-        b.get("deposit_paid") or 0,
-        _effective_som(b),
-        b["rate"],
+        round(_effective_total(b)),          # Сумма (сомы)
+        round(b.get("deposit_paid") or 0),   # Аванс (сомы)
+        _effective_usd(b),                   # Сумма ($)
         _STATUS_LABELS.get(b.get("status") or "active", "Активна"),
         b.get("notes",""),
     ]
@@ -1358,7 +1385,8 @@ def _write_totals(ws, bookings, total_row):
     fill   = PatternFill("solid", fgColor="EEF2FF")
     vals   = {1:"ИТОГО", 6:sum(b["nights"] for b in bookings),
               10:round(sum(_effective_total(b) for b in bookings)),
-              12:round(sum(_effective_som(b) for b in bookings))}
+              11:round(sum((b.get("deposit_paid") or 0) for b in bookings)),
+              12:round(sum(_effective_usd(b) for b in bookings))}
     for col in range(1, len(BOOK_HEADERS)+1):
         cell = ws.cell(row=total_row, column=col, value=vals.get(col))
         cell.font=bold; cell.fill=fill; cell.border=border
@@ -1392,7 +1420,7 @@ def export_excel():
     last = _write_rows(ws, all_bookings, start=2)
     if all_bookings: _write_totals(ws, all_bookings, last + 1)
     ws.freeze_panes = "A2"
-    ws.auto_filter.ref = f"A1:O{max(last, 2)}"
+    ws.auto_filter.ref = f"A1:N{max(last, 2)}"
 
     # Дополнительные листы по типам объектов компании
     _BOOKING_TYPE_SHEETS = [
@@ -1411,7 +1439,7 @@ def export_excel():
         last2 = _write_rows(ws2, type_bookings, start=2)
         if type_bookings: _write_totals(ws2, type_bookings, last2 + 1)
         ws2.freeze_panes = "A2"
-        ws2.auto_filter.ref = f"A1:O{max(last2, 2)}"
+        ws2.auto_filter.ref = f"A1:N{max(last2, 2)}"
 
     buf = io.BytesIO(); wb.save(buf); buf.seek(0)
     return send_file(buf,
@@ -1431,8 +1459,8 @@ def export_excel_cottage(cottage_id):
     cur.close(); conn.close()
 
     wb=Workbook(); ws=wb.active; ws.title=cottage["name"][:31]
-    ws.merge_cells("A1:O1"); tc=ws["A1"]
-    tc.value=f"{cottage['name']}  |  до {cottage['capacity']} чел.  |  ${int(cottage['price_per_day'])}/сутки"
+    ws.merge_cells("A1:N1"); tc=ws["A1"]
+    tc.value=f"{cottage['name']}  |  до {cottage['capacity']} чел.  |  {int(cottage['price_per_day'])} сом/сутки"
     tc.font=Font(bold=True,size=12); tc.fill=PatternFill("solid",fgColor="EEF2FF")
     tc.alignment=Alignment(horizontal="left",vertical="center"); ws.row_dimensions[1].height=26
     _write_headers(ws, row=2)
@@ -1449,24 +1477,26 @@ def export_excel_cottage(cottage_id):
 # ── CSV export ────────────────────────────────────────────
 
 CSV_HEADERS = ["№","Коттедж/Номер","Гость","Заезд","Выезд",
-               "Ночей","Гостей","Скидка ($)","Сумма ($)","Курс","Сумма (сом)","Заметки"]
+               "Ночей","Гостей","Скидка (сом)","Сумма (сом)","Аванс (сом)","Сумма ($)","Заметки"]
 
 def _to_csv(bookings):
     buf=io.StringIO()
     writer=csv.writer(buf, delimiter=";")
     writer.writerow(CSV_HEADERS)
     for seq, b in enumerate(bookings, 1):
-        discount=b.get("discount") or 0
+        discount=round(b.get("discount") or 0)
         writer.writerow([seq,b["cottage_name"],b["guest_name"],
             fmt_date(b["check_in"]),fmt_date(b["check_out"]),
             b["nights"],b["guests"],
-            f"-${discount}" if discount else "—",
-            b["total"],b["rate"],round(b["total_som"] or 0),b.get("notes","")])
+            f"-{discount}" if discount else "—",
+            round(_effective_total(b)),round(b.get("deposit_paid") or 0),
+            _effective_usd(b),b.get("notes","")])
     writer.writerow([])
     writer.writerow(["ИТОГО","","","","",
         sum(b["nights"] for b in bookings),"","",
-        round(sum(b["total"] for b in bookings)),"",
-        round(sum(b["total_som"] or 0 for b in bookings)),""])
+        round(sum(_effective_total(b) for b in bookings)),
+        round(sum((b.get("deposit_paid") or 0) for b in bookings)),
+        round(sum(_effective_usd(b) for b in bookings)),""])
     buf.seek(0)
     return buf
 
@@ -1580,12 +1610,12 @@ def export_excel_by_owner(owner_type):
     last = _write_rows(ws, all_bookings, start=2)
     if all_bookings: _write_totals(ws, all_bookings, last + 1)
     ws.freeze_panes = "A2"
-    ws.auto_filter.ref = f"A1:O{last}"
+    ws.auto_filter.ref = f"A1:N{last}"
 
     for c in cottages:
         ws2 = wb.create_sheet(c["name"][:28])
-        ws2.merge_cells("A1:O1"); tc = ws2["A1"]
-        tc.value = f"{c['name']}  |  до {c['capacity']} чел.  |  ${int(c['price_per_day'] or 0)}/сутки"
+        ws2.merge_cells("A1:N1"); tc = ws2["A1"]
+        tc.value = f"{c['name']}  |  до {c['capacity']} чел.  |  {int(c['price_per_day'] or 0)} сом/сутки"
         tc.font  = Font(bold=True, size=12, color="2C3E50")
         tc.fill  = PatternFill("solid", fgColor="EEF2FF")
         tc.alignment = Alignment(horizontal="left", vertical="center")

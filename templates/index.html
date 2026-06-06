@@ -20,6 +20,18 @@
 <header>
   <h1>🏡 Управление объектами</h1>
   <div class="header-right">
+    <div class="rate-block {% if not can('bookings_edit') %}rate-block--readonly{% endif %}" title="Глобальный курс доллара">
+      <span id="rate-display" {% if can('bookings_edit') %}onclick="openRateEdit()"{% endif %}>
+        💵 Курс $: <b class="rate-value" id="rate-value">{{ "%.0f"|format(rate) }}</b> <span class="rate-label">сом</span>
+      </span>
+      {% if can('bookings_edit') %}
+      <span id="rate-edit" class="rate-edit" style="display:none">
+        <input type="number" id="rate-input" min="1" step="0.01" value="{{ "%.0f"|format(rate) }}" onkeydown="if(event.key==='Enter'){event.preventDefault();saveRate();}">
+        <button type="button" class="btn btn-sm btn-success" onclick="saveRate()">✓</button>
+        <button type="button" class="btn btn-sm btn-outline" onclick="cancelRateEdit()">✕</button>
+      </span>
+      {% endif %}
+    </div>
     {% if can('services_view') %}<a href="/services" class="btn btn-outline">🛎️ Услуги</a>{% endif %}
     {% if can('bookings_edit') %}<button class="btn btn-outline" onclick="seedDemo()" title="Тестовые данные">🎲 Демо</button>{% endif %}
     {% if can('bookings_edit') %}<button class="btn btn-outline" onclick="clearDemo()" title="Удалить демо-данные" style="color:#ef4444;border-color:#ef4444">🗑️ Очистить демо</button>{% endif %}
@@ -90,7 +102,7 @@
             {% elif detail == 'type' %}<td><span class="owner-badge {{ pinfo.badge }}">{{ pinfo.label }}</span></td>{% endif %}
             <td>{{ c.capacity }} чел.</td>
             <td>{{ c.rooms or '—' }}</td>
-            <td>${{ "%.0f"|format(c.price_per_day or 0) }}</td>
+            <td>{{ "%.0f"|format(c.price_per_day or 0) }} сом</td>
             <td><span class="count-badge">{{ c.bookings_count }}</span></td>
             <td>{{ act(c) }}</td>
           </tr>
@@ -211,8 +223,8 @@
             <input type="number" id="cottage-capacity" min="1" max="999" placeholder="4">
           </div>
           <div class="form-group">
-            <label>Цена за сутки ($)</label>
-            <input type="number" id="cottage-price" min="0" step="1" placeholder="50">
+            <label>Цена за сутки (сом)</label>
+            <input type="number" id="cottage-price" min="0" step="100" placeholder="30000">
           </div>
         </div>
         <div class="form-row">
@@ -269,33 +281,27 @@
         </div>
       </div>
       <div id="booking-busy-hint" class="busy-hint" style="display:none"></div>
-      <div class="form-row">
-        <div class="form-group">
-          <label>Количество гостей *</label>
-          <input type="number" id="booking-guests" required min="1" placeholder="2" onchange="calcBookingTotal()">
-          <small id="booking-capacity-hint" class="hint"></small>
-        </div>
-        <div class="form-group">
-          <label>Курс $ сегодня *</label>
-          <input type="number" id="booking-rate" required min="1" step="0.01" onchange="calcBookingTotal()">
-          <small class="hint">сом за 1 $</small>
-        </div>
+      <div class="form-group">
+        <label>Количество гостей *</label>
+        <input type="number" id="booking-guests" required min="1" placeholder="2" onchange="calcBookingTotal()">
+        <small id="booking-capacity-hint" class="hint"></small>
       </div>
       <div class="form-row">
         <div class="form-group">
-          <label>Скидка ($)</label>
-          <input type="number" id="booking-discount" min="0" step="1" placeholder="0" onchange="calcBookingTotal()">
+          <label>Скидка (сом)</label>
+          <input type="number" id="booking-discount" min="0" step="100" placeholder="0" onchange="calcBookingTotal()">
           <small class="hint">вычитается из суммы</small>
         </div>
         <div class="form-group">
-          <label>Аванс ($)</label>
-          <input type="number" id="booking-deposit" min="0" step="1" placeholder="0">
+          <label>Аванс (сом)</label>
+          <input type="number" id="booking-deposit" min="0" step="100" placeholder="0">
           <small class="hint">предоплата (не возвращается)</small>
+          <div class="usd-helper">принято в $: <input type="number" id="booking-deposit-usd" min="0" step="1" placeholder="0" oninput="depositFromUsd('booking')"> → в сомы по курсу</div>
         </div>
       </div>
       <div id="booking-extra-group" class="form-group" style="display:none">
-        <label>Доп. за гостей ($/ночь)</label>
-        <input type="number" id="booking-extra" min="0" step="0.5" placeholder="0" onchange="calcBookingTotal()">
+        <label>Доп. за гостей (сом/ночь)</label>
+        <input type="number" id="booking-extra" min="0" step="50" placeholder="0" onchange="calcBookingTotal()">
         <small class="hint">надбавка за доп. гостей — умножается на кол-во ночей</small>
       </div>
       <div class="form-group">

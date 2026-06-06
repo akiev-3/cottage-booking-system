@@ -1417,8 +1417,8 @@ def export_excel_by_owner(owner_type):
         ws = wb.active
         ws.title = "Собственники"
 
-        headers    = ["№", "Название", "Собственник", "Контакты", "Описание"]
-        col_widths = [6, 28, 28, 40, 40]
+        headers    = ["№", "Название", "Тип объекта", "Собственник", "Контакты", "Описание"]
+        col_widths = [6, 28, 18, 28, 40, 40]
         hf     = Font(bold=True, color="FFFFFF")
         hfill  = _header_fill("F59E0B")   # жёлтый акцент
         border = _thin_border()
@@ -1432,7 +1432,7 @@ def export_excel_by_owner(owner_type):
 
         for ri, c in enumerate(cottages, 2):
             row_fill = PatternFill("solid", fgColor="FFFFFF")
-            values = [ri - 1, c["name"], c.get("owner_name",""), c.get("contacts",""), c.get("description","")]
+            values = [ri - 1, c["name"], c.get("property_type",""), c.get("owner_name",""), c.get("contacts",""), c.get("description","")]
             for col, val in enumerate(values, 1):
                 cell = ws.cell(row=ri, column=col, value=val)
                 cell.fill=row_fill; cell.border=border

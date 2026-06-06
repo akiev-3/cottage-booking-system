@@ -530,8 +530,8 @@ async function deleteCatalogItem(id) {
   if(!confirm('Удалить услугу из прайса?')) return;
   const res = await fetch('/service-catalog/'+id,{method:'DELETE'});
   if(!res.ok){ showToast('Недостаточно прав','error'); return; }
-  document.getElementById('crow-'+id)?.remove();
-  showToast('Услуга удалена');
+  showToast('Услуга удалена','success');
+  setTimeout(()=>location.reload(),600);
 }
 
 // Каноническое имя типа → ключ вкладки

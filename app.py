@@ -152,6 +152,7 @@ def init_db():
             notes                TEXT    DEFAULT ''
         )
     """)
+    cur.execute("ALTER TABLE bookings ADD COLUMN IF NOT EXISTS deposit_paid FLOAT DEFAULT 0")
     cur.execute("""
         CREATE TABLE IF NOT EXISTS settings (
             key   VARCHAR(50) PRIMARY KEY,
@@ -266,6 +267,8 @@ def serialize_booking(row) -> dict:
     for field in ("check_in", "check_out"):
         if isinstance(b.get(field), date):
             b[field] = b[field].isoformat()
+    b["deposit_paid"] = float(b.get("deposit_paid") or 0)
+    b["balance"] = round(max(0.0, float(b.get("total") or 0) - b["deposit_paid"]), 2)
     return b
 
 
@@ -330,8 +333,8 @@ def index():
     cur  = conn.cursor()
     cur.execute("SELECT * FROM cottages ORDER BY position, id")
     cottages = [dict(r) for r in cur.fetchall()]
-    # Счётчик броней по каждому объекту
-    cur.execute("SELECT cottage_id, COUNT(*) AS cnt FROM bookings GROUP BY cottage_id")
+    # Счётчик активных (не прошедших) броней по каждому объекту
+    cur.execute("SELECT cottage_id, COUNT(*) AS cnt FROM bookings WHERE check_out >= CURRENT_DATE GROUP BY cottage_id")
     counts = {r["cottage_id"]: r["cnt"] for r in cur.fetchall()}
     for c in cottages:
         c["bookings_count"] = counts.get(c["id"], 0)
@@ -647,17 +650,18 @@ def create_booking():
     total         = round(max(0, total_before - discount), 2)
     rate          = float(body.get("rate") or get_rate(cur))
     total_som     = round(total * rate)
+    deposit_paid  = max(0, float(body.get("deposit_paid") or 0))
 
     cur.execute("""
         INSERT INTO bookings
             (cottage_id, cottage_name, guest_name, guests,
              check_in, check_out, nights,
-             discount, total_before_discount, total, rate, total_som, notes)
-        VALUES (%s,%s,%s,%s, %s,%s,%s, %s,%s,%s,%s,%s,%s)
+             discount, total_before_discount, total, rate, total_som, notes, deposit_paid)
+        VALUES (%s,%s,%s,%s, %s,%s,%s, %s,%s,%s,%s,%s,%s,%s)
         RETURNING *
     """, (cottage_id, cottage["name"], body.get("guest_name", ""), guests,
           ci, co, nights,
-          discount, total_before, total, rate, total_som, body.get("notes", "")))
+          discount, total_before, total, rate, total_som, body.get("notes", ""), deposit_paid))
     booking = dict(cur.fetchone())
     conn.commit(); cur.close(); conn.close()
 
@@ -717,16 +721,18 @@ def update_booking(booking_id):
     total        = round(max(0, total_before - discount), 2)
     rate         = float(body.get("rate") or existing["rate"] or get_rate(cur))
     total_som    = round(total * rate)
+    deposit_paid = max(0, float(body.get("deposit_paid") if body.get("deposit_paid") is not None else existing.get("deposit_paid") or 0))
 
     cur.execute("""
         UPDATE bookings SET cottage_id=%s, cottage_name=%s, guest_name=%s, guests=%s,
                             check_in=%s, check_out=%s, nights=%s, discount=%s,
-                            total_before_discount=%s, total=%s, rate=%s, total_som=%s, notes=%s
+                            total_before_discount=%s, total=%s, rate=%s, total_som=%s,
+                            notes=%s, deposit_paid=%s
         WHERE id=%s RETURNING *
     """, (cottage_id, cottage["name"],
           body.get("guest_name", existing["guest_name"]), guests,
           ci, co, nights, discount, total_before, total, rate, total_som,
-          body.get("notes", existing["notes"]), booking_id))
+          body.get("notes", existing["notes"]), deposit_paid, booking_id))
     booking = dict(cur.fetchone())
     conn.commit(); cur.close(); conn.close()
     booking["check_in"]  = str(booking["check_in"])

@@ -284,8 +284,9 @@ async function submitBooking(e) {
     check_out:  co,
     guests:     document.getElementById('booking-guests').value,
     rate,
-    discount:   parseFloat(document.getElementById('booking-discount').value) || 0,
-    notes:      document.getElementById('booking-notes').value.trim(),
+    discount:     parseFloat(document.getElementById('booking-discount').value) || 0,
+    deposit_paid: parseFloat(document.getElementById('booking-deposit').value) || 0,
+    notes:        document.getElementById('booking-notes').value.trim(),
   };
   const res  = await fetch('/bookings', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
   const data = await res.json();

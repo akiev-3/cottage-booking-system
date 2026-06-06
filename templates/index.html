@@ -287,9 +287,14 @@
           <small class="hint">вычитается из суммы</small>
         </div>
         <div class="form-group">
-          <label>Заметки</label>
-          <textarea id="booking-notes" placeholder="Пожелания гостя..." rows="2"></textarea>
+          <label>Аванс ($)</label>
+          <input type="number" id="booking-deposit" min="0" step="1" placeholder="0">
+          <small class="hint">предоплата (не возвращается)</small>
         </div>
+      </div>
+      <div class="form-group">
+        <label>Заметки</label>
+        <textarea id="booking-notes" placeholder="Пожелания гостя..." rows="2"></textarea>
       </div>
       <div id="booking-total-block" class="total-block" style="display:none">
         <div>

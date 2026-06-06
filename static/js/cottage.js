@@ -78,6 +78,7 @@ function editBooking(id, b) {
   document.getElementById('booking-guests').value     = b.guests || '';
   document.getElementById('booking-rate').value       = b.rate || '';
   document.getElementById('booking-discount').value   = b.discount || '';
+  document.getElementById('booking-deposit').value    = b.deposit_paid || '';
   document.getElementById('booking-notes').value      = b.notes || '';
   initCalendars(true);   // при редактировании прошлые даты разрешены
   fpCheckin.setDate(b.check_in, true);
@@ -128,8 +129,9 @@ async function submitBookingPage(e) {
     check_out:  co,
     guests:     document.getElementById('booking-guests').value,
     rate,
-    discount:   parseFloat(document.getElementById('booking-discount').value) || 0,
-    notes:      document.getElementById('booking-notes').value.trim(),
+    discount:     parseFloat(document.getElementById('booking-discount').value) || 0,
+    deposit_paid: parseFloat(document.getElementById('booking-deposit').value) || 0,
+    notes:        document.getElementById('booking-notes').value.trim(),
   };
   const url    = id ? `/bookings/${id}` : '/bookings';
   const method = id ? 'PUT' : 'POST';

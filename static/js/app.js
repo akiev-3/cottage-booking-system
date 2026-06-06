@@ -13,6 +13,15 @@ function renumberRows(tbody) {
   });
 }
 
+// Снимаем остаточные inline-стили, которые SortableJS оставляет на <tr>
+// после нескольких перетаскиваний (из-за чего появляются пустые «разрывы»).
+function _clearRowTransforms(tbody) {
+  tbody.querySelectorAll('tr').forEach(tr => {
+    tr.style.transform  = '';
+    tr.style.transition = '';
+  });
+}
+
 // ── Режим изменения порядка ──
 // По умолчанию строки зафиксированы (перетаскивание выключено). Пользователь
 // жмёт «Изменить порядок», двигает строки, затем «Сохранить» — все изменения
@@ -26,12 +35,12 @@ function initSortable() {
   _sortables = [];
   document.querySelectorAll('tbody.sortable-rows').forEach(tbody => {
     const s = Sortable.create(tbody, {
-      animation: 150,
+      animation: 0,                 // без анимации: у <tr> остаются «застрявшие» transform → разрывы
       handle: 'td',                 // тянуть за любую ячейку
       filter: '.row-actions, button, a, input',  // кроме кнопок
       preventOnFilter: false,
       disabled: true,               // включается только в режиме редактирования
-      onEnd: () => { renumberRows(tbody); _dirtyTbodies.add(tbody); }
+      onEnd: () => { _clearRowTransforms(tbody); renumberRows(tbody); _dirtyTbodies.add(tbody); }
     });
     _sortables.push(s);
   });

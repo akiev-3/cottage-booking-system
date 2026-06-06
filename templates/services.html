@@ -751,16 +751,21 @@ function _ordRenumber(tbody) {
   });
 }
 
+// Снимаем остаточные inline-стили SortableJS с <tr> (иначе появляются «разрывы»)
+function _ordClearTransforms(tbody) {
+  tbody.querySelectorAll('tr').forEach(tr => { tr.style.transform=''; tr.style.transition=''; });
+}
+
 (function initOrdersSortable() {
   const tbody = document.getElementById('orders-body');
   if (!tbody || !tbody.classList.contains('can-sort') || typeof Sortable === 'undefined') return;
   _ordSortable = Sortable.create(tbody, {
-    animation: 150,
+    animation: 0,
     handle: 'td',
     filter: 'button, a',
     preventOnFilter: false,
     disabled: true,
-    onEnd: () => { _ordRenumber(tbody); _ordDirty = true; }
+    onEnd: () => { _ordClearTransforms(tbody); _ordRenumber(tbody); _ordDirty = true; }
   });
 })();
 

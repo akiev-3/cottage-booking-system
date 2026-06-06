@@ -949,6 +949,76 @@ def create_service_order():
     return jsonify(order), 201
 
 
+@app.route("/service-orders/<int:order_id>", methods=["PUT"])
+@require_perm("services_edit")
+def update_service_order(order_id):
+    body = request.json
+    conn = get_db(); cur = conn.cursor()
+
+    cur.execute("SELECT * FROM service_orders WHERE id=%s", (order_id,))
+    existing = cur.fetchone()
+    if not existing:
+        cur.close(); conn.close()
+        return jsonify({"error": "Заказ не найден"}), 404
+
+    svc = None
+    if body.get("service_id"):
+        cur.execute("SELECT * FROM service_catalog WHERE id=%s", (int(body["service_id"]),))
+        svc = cur.fetchone()
+
+    if not svc:
+        custom_name = body.get("custom_name","").strip()
+        if not custom_name:
+            cur.close(); conn.close()
+            return jsonify({"error": "Введите название услуги"}), 400
+        svc = {"id": None, "name": custom_name, "category": existing["category"],
+               "unit": "шт", "price": float(body.get("price") or existing["price"]),
+               "has_plate": bool(existing["plate"])}
+
+    cottage_id   = body.get("cottage_id") or None
+    cottage_name = existing["cottage_name"] or ""
+    object_type  = body.get("object_type") or existing.get("object_type") or ""
+    if cottage_id:
+        cur.execute("SELECT name, owner_type, property_type FROM cottages WHERE id=%s", (int(cottage_id),))
+        c = cur.fetchone()
+        if c:
+            cottage_name = c["name"]
+            if not object_type:
+                object_type = "Собственник" if c["owner_type"] == "Собственник" else c["property_type"]
+
+    price    = float(body.get("price") or svc["price"])
+    end_date = body.get("end_date") or None
+
+    if end_date and svc.get("has_plate"):
+        d1 = datetime.strptime(body["service_date"], "%Y-%m-%d").date()
+        d2 = datetime.strptime(end_date, "%Y-%m-%d").date()
+        qty = max(1, (d2 - d1).days)
+    else:
+        qty = float(body.get("quantity") or 1)
+
+    total        = round(qty * price)
+    service_name = body.get("custom_name","").strip() or svc["name"]
+
+    cur.execute("""
+        UPDATE service_orders SET
+            service_id=%s, service_name=%s, category=%s,
+            cottage_id=%s, cottage_name=%s,
+            service_date=%s, end_date=%s, quantity=%s,
+            price=%s, total=%s, plate=%s, notes=%s, object_type=%s
+        WHERE id=%s RETURNING *
+    """, (svc["id"], service_name, svc["category"],
+          cottage_id, cottage_name,
+          body["service_date"], end_date, qty, price, total,
+          body.get("plate",""), body.get("notes",""), object_type,
+          order_id))
+    order = dict(cur.fetchone())
+    conn.commit(); cur.close(); conn.close()
+    for f in ("service_date", "end_date"):
+        if isinstance(order.get(f), date):
+            order[f] = order[f].isoformat()
+    return jsonify(order)
+
+
 @app.route("/service-orders/<int:order_id>", methods=["DELETE"])
 @require_perm("services_delete")
 def delete_service_order(order_id):
@@ -961,8 +1031,8 @@ def delete_service_order(order_id):
 def _write_services_to_sheet(ws, orders):
     """Записывает данные заказов услуг в существующий лист."""
     headers    = ["№","Дата начала","Дата окончания","Категория","Услуга",
-                  "Коттедж","Кол-во","Цена (сом)","Итого (сом)","Гос. номер","Заметки"]
-    col_widths = [6, 14, 16, 18, 34, 22, 8, 13, 14, 16, 30]
+                  "Коттеджи / Квартиры / Номера","Кол-во","Цена (сом)","Итого (сом)","Гос. номер","Заметки"]
+    col_widths = [6, 14, 16, 18, 34, 30, 8, 13, 14, 16, 30]
     hf     = Font(bold=True, color="FFFFFF")
     hfill  = _header_fill("4F6EF7")
     border = _thin_border()
@@ -1097,18 +1167,19 @@ def export_excel_services_all():
     cur.close(); conn.close()
 
     wb = Workbook()
-    first = True
+
+    # Первый лист: все услуги (включая собственников)
+    ws = wb.active
+    ws.title = "Все услуги"
+    _write_services_to_sheet(ws, orders)
+
+    # Дополнительные листы по типам объектов
     for obj_name, _key, _label in OBJECT_TYPES:
         type_orders = [o for o in orders if o.get("object_type") == obj_name]
         if not type_orders:
             continue
-        ws = wb.active if first else wb.create_sheet()
-        if first: first = False
-        ws.title = _SVC_SHEET_TITLES.get(obj_name, obj_name)[:31]
-        _write_services_to_sheet(ws, type_orders)
-
-    if first:
-        wb.active.title = "Услуги"
+        ws2 = wb.create_sheet(_SVC_SHEET_TITLES.get(obj_name, obj_name)[:31])
+        _write_services_to_sheet(ws2, type_orders)
 
     buf = io.BytesIO(); wb.save(buf); buf.seek(0)
     return send_file(buf,
@@ -1119,9 +1190,9 @@ def export_excel_services_all():
 
 # ── Excel helpers ─────────────────────────────────────────
 
-BOOK_HEADERS = ["№","Коттедж","Гость","Заезд","Выезд",
+BOOK_HEADERS = ["№","Коттеджи / Квартиры / Номера","Гость","Заезд","Выезд",
                 "Ночей","Гостей","Скидка ($)","Сумма ($)","Сумма (сом)","Курс","Заметки"]
-BOOK_WIDTHS  = [6,22,22,13,13,8,8,11,13,14,8,30]
+BOOK_WIDTHS  = [6,30,22,13,13,8,8,11,13,14,8,30]
 CENTER_COLS  = {1,6,7,8,9,10,11}
 
 def _header_fill(color): return PatternFill("solid", fgColor=color)
@@ -1198,9 +1269,17 @@ def export_excel():
     cur.close(); conn.close()
 
     wb = Workbook()
-    first = True
 
-    # Отдельный лист на каждый тип объекта компании (без сводки и без частников)
+    # Первый лист: все брони объектов компании
+    ws = wb.active
+    ws.title = "Все брони"
+    _write_headers(ws, row=1)
+    last = _write_rows(ws, all_bookings, start=2)
+    if all_bookings: _write_totals(ws, all_bookings, last + 1)
+    ws.freeze_panes = "A2"
+    ws.auto_filter.ref = f"A1:L{max(last, 2)}"
+
+    # Дополнительные листы по типам объектов компании
     _BOOKING_TYPE_SHEETS = [
         ("Коттедж",               "Коттеджи"),
         ("Номер отеля",           "Номера отеля"),
@@ -1212,17 +1291,12 @@ def export_excel():
         type_bookings = [b for b in all_bookings if b["cottage_id"] in type_ids]
         if not type_bookings:
             continue
-        ws = wb.active if first else wb.create_sheet()
-        if first: first = False
-        ws.title = sheet_title[:31]
-        _write_headers(ws, row=1)
-        last = _write_rows(ws, type_bookings, start=2)
-        if type_bookings: _write_totals(ws, type_bookings, last + 1)
-        ws.freeze_panes = "A2"
-        ws.auto_filter.ref = f"A1:L{last}"
-
-    if first:   # данных нет
-        wb.active.title = "Брони"
+        ws2 = wb.create_sheet(sheet_title[:31])
+        _write_headers(ws2, row=1)
+        last2 = _write_rows(ws2, type_bookings, start=2)
+        if type_bookings: _write_totals(ws2, type_bookings, last2 + 1)
+        ws2.freeze_panes = "A2"
+        ws2.auto_filter.ref = f"A1:L{max(last2, 2)}"
 
     buf = io.BytesIO(); wb.save(buf); buf.seek(0)
     return send_file(buf,

@@ -22,7 +22,10 @@
   <div class="header-right">
     {% if can('services_view') %}<a href="/services" class="btn btn-outline">🛎️ Услуги</a>{% endif %}
     {% if can('bookings_edit') %}<button class="btn btn-outline" onclick="seedDemo()" title="Тестовые данные">🎲 Демо</button>{% endif %}
-    {% if can('excel') %}<a href="/export/excel" class="btn btn-excel">⬇️ Excel</a>{% endif %}
+    {% if can('excel') %}
+    <a href="/export/excel" class="btn btn-excel">⬇️ Excel (брони)</a>
+    <a href="/export/excel/owner/private" class="btn btn-excel" style="background:#f59e0b;border-color:#f59e0b">⬇️ Excel (собственники)</a>
+    {% endif %}
     {% if can('bookings_edit') %}<button class="btn btn-primary" onclick="openAddCottage()">+ Добавить</button>{% endif %}
     <span class="role-badge">{{ role }}</span>
     <a href="/logout" class="btn btn-outline">Выйти</a>

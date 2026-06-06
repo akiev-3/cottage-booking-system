@@ -62,7 +62,7 @@
   <div class="header-right">
     {% if can('excel') %}<a href="/export/excel/services-all" class="btn btn-excel">⬇️ Excel</a>{% endif %}
     {% if can('services_edit') %}
-    <button class="btn btn-success" onclick="openModal('modal-order')">+ Новый заказ</button>
+    <button class="btn btn-success" onclick="openNewOrder()">+ Новый заказ</button>
     {% endif %}
     <span class="role-badge">{{ role }}</span>
     <a href="/logout" class="btn btn-outline">Выйти</a>
@@ -92,7 +92,7 @@
             <th>#</th><th>Дата начала</th><th>Дата оконч.</th>
             <th>Услуга</th><th>Категория</th><th>Тип объекта</th><th>Объект</th>
             <th>Кол-во</th><th>Цена</th><th>Итого</th>
-            <th>Гос. номер</th><th>Заметки</th>{% if can('services_delete') %}<th></th>{% endif %}
+            <th>Гос. номер</th><th>Заметки</th>{% if can('services_edit') or can('services_delete') %}<th></th>{% endif %}
           </tr>
         </thead>
         <tbody id="orders-body"{% if can('services_edit') %} class="can-sort"{% endif %}>
@@ -110,7 +110,14 @@
             <td><strong>{{ "%.0f"|format(o.total) }} сом</strong></td>
             <td>{% if o.plate %}<span class="plate-badge">{{ o.plate }}</span>{% else %}—{% endif %}</td>
             <td class="notes-col">{{ o.notes }}</td>
-            {% if can('services_delete') %}<td><button class="btn btn-sm btn-danger" onclick="deleteOrder({{ o.id }})">🗑️</button></td>{% endif %}
+            {% if can('services_edit') or can('services_delete') %}
+            <td>
+              <div class="row-actions">
+                {% if can('services_edit') %}<button class="btn btn-sm btn-outline" title="Изменить" onclick='openEditOrder({{ o|tojson }})'>✏️</button>{% endif %}
+                {% if can('services_delete') %}<button class="btn btn-sm btn-danger" title="Удалить" onclick="deleteOrder({{ o.id }})">🗑️</button>{% endif %}
+              </div>
+            </td>
+            {% endif %}
           </tr>
           {% endfor %}
         </tbody>
@@ -183,14 +190,15 @@
   </div>
 </main>
 
-<!-- Modal: Новый заказ -->
+<!-- Modal: Новый/редактировать заказ -->
 <div id="modal-order" class="modal-overlay" onclick="closeModalOverlay(event,'modal-order')">
   <div class="modal">
     <div class="modal-header">
-      <h3>Новый заказ услуги</h3>
+      <h3 id="order-modal-title">Новый заказ услуги</h3>
       <button class="close-btn" onclick="closeModal('modal-order')">✕</button>
     </div>
-    <form id="form-order" onsubmit="submitOrder(event)">
+    <form id="form-order" onsubmit="submitOrder(event)" novalidate>
+      <input type="hidden" id="order-id" value="">
 
       <!-- Шаг 1: выбор типа объекта -->
       <div class="form-group">
@@ -441,9 +449,51 @@ function calcOrderTotal() {
   block.style.display='flex';
 }
 
+function openNewOrder() {
+  document.getElementById('order-id').value = '';
+  document.getElementById('order-modal-title').textContent = 'Новый заказ услуги';
+  document.getElementById('form-order').reset();
+  document.getElementById('order-date').value = new Date().toISOString().slice(0,10);
+  isParking = false;
+  document.getElementById('parking-group').style.display = 'none';
+  document.getElementById('qty-group').style.display = 'block';
+  document.getElementById('order-total-block').style.display = 'none';
+  onOwnerTypeChange();
+  openModal('modal-order');
+}
+
+function openEditOrder(data) {
+  document.getElementById('order-id').value = data.id;
+  document.getElementById('order-modal-title').textContent = 'Редактировать заказ';
+  // Сначала выставляем тип объекта и перестраиваем дропдауны
+  document.getElementById('order-objtype').value = data.object_type || 'Коттедж';
+  onOwnerTypeChange();
+  // Услуга из прайса (если есть)
+  const svcSel = document.getElementById('order-service');
+  svcSel.value = data.service_id || '';
+  if (data.service_id) {
+    onServiceChange();
+  } else {
+    isParking = false;
+    document.getElementById('parking-group').style.display = 'none';
+    document.getElementById('qty-group').style.display = 'block';
+  }
+  document.getElementById('order-custom-name').value = data.service_name || '';
+  document.getElementById('order-date').value         = data.service_date || '';
+  document.getElementById('order-end-date').value     = data.end_date     || '';
+  document.getElementById('order-cottage').value      = data.cottage_id   || '';
+  document.getElementById('order-qty').value          = data.quantity     || 1;
+  document.getElementById('order-price').value        = data.price        || 0;
+  document.getElementById('order-plate').value        = data.plate        || '';
+  document.getElementById('order-notes').value        = data.notes        || '';
+  calcOrderTotal();
+  openModal('modal-order');
+}
+
 async function submitOrder(e) {
   e.preventDefault();
-  const svcSel = document.getElementById('order-service');
+  const orderId = document.getElementById('order-id').value;
+  const svcSel  = document.getElementById('order-service');
   const body = {
     service_id:   svcSel.value || null,
     custom_name:  document.getElementById('order-custom-name').value.trim(),
@@ -456,17 +506,14 @@ async function submitOrder(e) {
     plate:        document.getElementById('order-plate').value.toUpperCase(),
     notes:        document.getElementById('order-notes').value.trim(),
   };
-  // Если услуга не выбрана из прайса — нужна хотя бы цена и название
   if (!body.service_id && !body.custom_name) { showToast('Введите название услуги','error'); return; }
-  if (!body.service_id) {
-    // Создаём «разовую» запись без service_id
-    body.service_id = null;
-  }
-  const res  = await fetch('/service-orders', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  const url    = orderId ? '/service-orders/' + orderId : '/service-orders';
+  const method = orderId ? 'PUT' : 'POST';
+  const res  = await fetch(url, {method, headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
   const data = await res.json();
   if (!res.ok) { showToast(data.error,'error'); return; }
-  showToast('Заказ добавлен!','success');
-  localStorage.setItem('svcTab', 'orders');  // остаться на вкладке заказов
+  showToast(orderId ? 'Заказ обновлён!' : 'Заказ добавлен!','success');
+  localStorage.setItem('svcTab', 'orders');
   closeModal('modal-order');
   setTimeout(()=>location.reload(),600);
 }

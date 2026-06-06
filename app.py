@@ -821,7 +821,7 @@ def cottage_bookings_page(cottage_id):
     today = date.today().isoformat()
     cur.close(); conn.close()
     # Занятые диапазоны для подсветки в календаре
-    booked_ranges = [{"from": b["check_in"], "to": b["check_out"]} for b in bookings]
+    booked_ranges = [{"from": b["check_in"], "to": b["check_out"]} for b in bookings if b.get("status") != "cancelled"]
     return render_template("cottage.html", cottage=dict(cottage),
                            bookings=bookings, today=today, rate=rate,
                            booked_ranges=booked_ranges)

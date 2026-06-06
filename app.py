@@ -743,6 +743,19 @@ def delete_booking(booking_id):
     return jsonify({"ok": True})
 
 
+@app.route("/bookings/bulk-delete", methods=["POST"])
+@require_perm("bookings_edit")
+def bulk_delete_bookings():
+    ids = request.json.get("ids", [])
+    if not ids:
+        return jsonify({"ok": True, "deleted": 0})
+    conn = get_db(); cur = conn.cursor()
+    cur.execute("DELETE FROM bookings WHERE id = ANY(%s)", (ids,))
+    count = cur.rowcount
+    conn.commit(); cur.close(); conn.close()
+    return jsonify({"ok": True, "deleted": count})
+
+
 @app.route("/cottages/<int:cottage_id>/booked-ranges")
 @require_perm("bookings_view")
 def cottage_booked_ranges(cottage_id):
@@ -881,6 +894,19 @@ def delete_catalog_item(item_id):
     cur.execute("DELETE FROM service_catalog WHERE id=%s", (item_id,))
     conn.commit(); cur.close(); conn.close()
     return jsonify({"ok": True})
+
+
+@app.route("/service-catalog/bulk-delete", methods=["POST"])
+@require_perm("services_delete")
+def bulk_delete_catalog():
+    ids = request.json.get("ids", [])
+    if not ids:
+        return jsonify({"ok": True, "deleted": 0})
+    conn = get_db(); cur = conn.cursor()
+    cur.execute("DELETE FROM service_catalog WHERE id = ANY(%s)", (ids,))
+    count = cur.rowcount
+    conn.commit(); cur.close(); conn.close()
+    return jsonify({"ok": True, "deleted": count})
 
 
 @app.route("/service-orders", methods=["POST"])
@@ -1026,6 +1052,19 @@ def delete_service_order(order_id):
     cur.execute("DELETE FROM service_orders WHERE id=%s", (order_id,))
     conn.commit(); cur.close(); conn.close()
     return jsonify({"ok": True})
+
+
+@app.route("/service-orders/bulk-delete", methods=["POST"])
+@require_perm("services_delete")
+def bulk_delete_service_orders():
+    ids = request.json.get("ids", [])
+    if not ids:
+        return jsonify({"ok": True, "deleted": 0})
+    conn = get_db(); cur = conn.cursor()
+    cur.execute("DELETE FROM service_orders WHERE id = ANY(%s)", (ids,))
+    count = cur.rowcount
+    conn.commit(); cur.close(); conn.close()
+    return jsonify({"ok": True, "deleted": count})
 
 
 def _write_services_to_sheet(ws, orders):

@@ -39,6 +39,11 @@
     <a href="/export/excel" class="btn btn-excel">⬇️ Excel (брони)</a>
     <a href="/export/excel/owner/private" class="btn btn-excel" style="background:#f59e0b;border-color:#f59e0b">⬇️ Excel (собственники)</a>
     {% endif %}
+    {% if can('manage_users') %}
+    <a href="/backup/download" class="btn btn-outline" title="Скачать полный бэкап (JSON)">💾 Бэкап</a>
+    <button class="btn btn-outline" onclick="document.getElementById('restore-file').click()" title="Восстановить базу из файла бэкапа">♻️ Восстановить</button>
+    <input type="file" id="restore-file" accept=".json,application/json" style="display:none" onchange="restoreBackup(this)">
+    {% endif %}
     {% if can('bookings_edit') %}<button class="btn btn-primary" onclick="openAddCottage()">+ Добавить</button>{% endif %}
     <span class="role-badge">{{ role }}</span>
     <a href="/logout" class="btn btn-outline">Выйти</a>

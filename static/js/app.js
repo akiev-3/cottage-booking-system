@@ -106,6 +106,31 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 });
 
+// ── Восстановление базы из файла бэкапа (admin) ──
+async function restoreBackup(input) {
+  const file = input.files && input.files[0];
+  if (!file) return;
+  if (!confirm('⚠️ ВНИМАНИЕ!\n\nВосстановление ПОЛНОСТЬЮ заменит все текущие данные (объекты, брони, услуги, курс) данными из файла.\n\nТекущие данные будут удалены без возможности отмены. Продолжить?')) {
+    input.value = ''; return;
+  }
+  if (!confirm('Точно восстановить базу из этого файла? Это последнее предупреждение.')) {
+    input.value = ''; return;
+  }
+  const fd = new FormData();
+  fd.append('file', file);
+  showToast('Восстановление базы…');
+  try {
+    const res  = await fetch('/backup/restore', { method: 'POST', body: fd });
+    const data = await res.json();
+    if (!res.ok || !data.ok) { showToast('Ошибка: ' + (data.error || res.status), 'error'); input.value = ''; return; }
+    showToast(data.message || 'База восстановлена', 'success');
+    setTimeout(() => location.reload(), 1400);
+  } catch (e) {
+    showToast('Ошибка сети', 'error');
+  }
+  input.value = '';
+}
+
 // ── Демо-данные ──
 async function clearDemo() {
   if (!confirm('Удалить все демо-брони и демо-заказы?')) return;

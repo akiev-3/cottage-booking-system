@@ -1515,6 +1515,81 @@ def export_excel_cottage(cottage_id):
         as_attachment=True, download_name=f"{cottage['name']}_{date.today()}.xlsx")
 
 
+# ── Полный бэкап / восстановление (JSON) ──────────────────
+# Все таблицы выгружаются в один файл .json; восстановление полностью
+# заменяет текущие данные данными из файла (внутри транзакции).
+# Порядок таблиц учитывает внешние ключи: родители раньше детей.
+_BACKUP_TABLES = ["cottages", "service_catalog", "bookings", "service_orders", "settings"]
+
+
+@app.route("/backup/download")
+@require_perm("manage_users")
+def backup_download():
+    conn = get_db(); cur = conn.cursor()
+    data = {}
+    for t in _BACKUP_TABLES:
+        cur.execute(f"SELECT * FROM {t} ORDER BY 1")
+        data[t] = [dict(r) for r in cur.fetchall()]
+    cur.close(); conn.close()
+    payload = {"version": 1, "exported_at": date.today().isoformat(), "tables": data}
+    # default=str безопасно сериализует даты/время/Decimal в строки
+    raw = json.dumps(payload, ensure_ascii=False, default=str, indent=2)
+    buf = io.BytesIO(raw.encode("utf-8"))
+    return send_file(buf, mimetype="application/json", as_attachment=True,
+                     download_name=f"backup_{date.today()}.json")
+
+
+@app.route("/backup/restore", methods=["POST"])
+@require_perm("manage_users")
+def backup_restore():
+    f = request.files.get("file")
+    if not f:
+        return jsonify({"error": "Файл не выбран"}), 400
+    try:
+        payload = json.loads(f.read().decode("utf-8"))
+    except Exception:
+        return jsonify({"error": "Не удалось прочитать файл — это не похоже на JSON-бэкап"}), 400
+
+    tables_data = payload.get("tables") if isinstance(payload, dict) else None
+    if not isinstance(tables_data, dict) or "cottages" not in tables_data:
+        return jsonify({"error": "Файл не похож на бэкап этой системы"}), 400
+
+    conn = get_db(); cur = conn.cursor()
+    try:
+        # Чистим в порядке дети → родители
+        for t in reversed(_BACKUP_TABLES):
+            cur.execute(f"DELETE FROM {t}")
+        # Вставляем в порядке родители → дети
+        counts = {}
+        for t in _BACKUP_TABLES:
+            rows = tables_data.get(t) or []
+            # реальные колонки таблицы (защита от инъекций и дрейфа схемы)
+            cur.execute(f"SELECT * FROM {t} LIMIT 0")
+            cols = [d[0] for d in cur.description]
+            for row in rows:
+                use = [c for c in cols if c in row]
+                if not use:
+                    continue
+                collist = ",".join(use)
+                placeholders = ",".join(["%s"] * len(use))
+                cur.execute(f"INSERT INTO {t} ({collist}) VALUES ({placeholders})",
+                            [row[c] for c in use])
+            counts[t] = len(rows)
+            # сбрасываем счётчик автоинкремента, чтобы новые id не конфликтовали
+            if "id" in cols:
+                cur.execute(
+                    f"SELECT setval(pg_get_serial_sequence('{t}', 'id'), "
+                    f"GREATEST((SELECT COALESCE(MAX(id), 0) FROM {t}), 1))"
+                )
+        conn.commit()
+    except Exception as e:
+        conn.rollback(); cur.close(); conn.close()
+        return jsonify({"error": f"Ошибка восстановления, изменения отменены: {e}"}), 500
+    cur.close(); conn.close()
+    summary = ", ".join(f"{t}: {counts.get(t,0)}" for t in _BACKUP_TABLES)
+    return jsonify({"ok": True, "message": "База восстановлена из бэкапа", "restored": summary})
+
+
 # ── Старт ─────────────────────────────────────────────────
 
 with app.app_context():

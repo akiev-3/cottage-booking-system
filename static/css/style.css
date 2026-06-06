@@ -417,6 +417,29 @@ tbody.sortable-rows tr, #orders-body tr { cursor: grab; }
   max-width: 220px;
 }
 
+/* ── Totals bar (итог под таблицей броней) ── */
+.totals-bar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 20px;
+  background: #eef2ff;
+  border-top: 2px solid var(--border);
+  border-radius: 0 0 var(--radius) var(--radius);
+  flex-wrap: wrap;
+}
+.totals-label { font-size: 0.85rem; color: var(--muted); font-weight: 600; }
+.totals-usd   { font-size: 1.1rem;  color: var(--primary); font-weight: 700; }
+.totals-sep   { color: var(--muted); font-size: 0.9rem; }
+.totals-som   { font-size: 0.95rem; color: var(--text); font-weight: 600; }
+.totals-count { margin-left: auto; }
+
+@media (max-width: 640px) {
+  .totals-bar { padding: 10px 14px; gap: 10px; }
+  .totals-usd { font-size: 1rem; }
+  .totals-count { margin-left: 0; }
+}
+
 /* ── Empty state ── */
 .empty-state {
   grid-column: 1 / -1;

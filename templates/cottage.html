@@ -110,7 +110,13 @@
             </td>
             <td class="col-lg">{% if b.discount %}<span class="discount-badge">-${{ b.discount }}</span>{% else %}—{% endif %}</td>
             <td class="col-lg">{{ b.rate }}</td>
-            <td class="col-md">{{ "%.0f"|format(b.total_som) }} сом</td>
+            <td class="col-md">
+              {% if b.status == 'cancelled' %}
+                {% if b.deposit_paid %}{{ "%.0f"|format(b.deposit_paid * b.rate) }}{% else %}0{% endif %} <span class="was-price">{{ "%.0f"|format(b.total_som) }}</span> сом
+              {% else %}
+                {{ "%.0f"|format(b.total_som) }} сом
+              {% endif %}
+            </td>
             <td class="col-xl notes-cell">{{ b.notes }}</td>
             <td>
               {% if b.status == 'active' %}<span class="status-active">Активна</span>
@@ -136,6 +142,13 @@
           {% endfor %}
         </tbody>
       </table>
+    </div>
+    <div class="totals-bar">
+      <span class="totals-label">Итого:</span>
+      <span class="totals-usd">💵 ${{ "%.0f"|format(total_usd) }}</span>
+      <span class="totals-sep">≈</span>
+      <span class="totals-som">{{ "%.0f"|format(total_som) }} сом</span>
+      <span class="totals-count muted-sm">{{ bookings|length }} брон(ей)</span>
     </div>
     {% else %}
     <div class="empty-state">

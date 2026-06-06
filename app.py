@@ -830,9 +830,13 @@ def cottage_bookings_page(cottage_id):
     cur.close(); conn.close()
     # Занятые диапазоны для подсветки в календаре
     booked_ranges = [{"from": b["check_in"], "to": b["check_out"]} for b in bookings if b.get("status") != "cancelled"]
+    # Итоговые суммы: для отменённых учитывается только аванс
+    total_usd = round(sum(_effective_total(b) for b in bookings))
+    total_som = round(sum(_effective_som(b)   for b in bookings))
     return render_template("cottage.html", cottage=dict(cottage),
                            bookings=bookings, today=today, rate=rate,
-                           booked_ranges=booked_ranges)
+                           booked_ranges=booked_ranges,
+                           total_usd=total_usd, total_som=total_som)
 
 
 # ── Services ──────────────────────────────────────────────

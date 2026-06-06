@@ -25,27 +25,66 @@ function occupiedNights(ranges) {
     return { from: r.from, to: isoDate(to) };
   });
 }
+let excludeRange = null;   // при редактировании — диапазон самой брони (не считается занятым)
+function activeRanges() {
+  if (!excludeRange) return BOOKED_RANGES;
+  return BOOKED_RANGES.filter(r => !(r.from === excludeRange.from && r.to === excludeRange.to));
+}
 function rangeOverlaps(ci, co) {
   const a1 = new Date(ci), a2 = new Date(co);
-  return BOOKED_RANGES.some(r => {
+  return activeRanges().some(r => {
     const b1 = new Date(r.from), b2 = new Date(r.to);
     return a1 < b2 && a2 > b1;
   });
 }
 function showBusyHint() {
-  // Текст-подсказку не показываем — занятые даты видны в календаре зачёркнутыми
   const hint = document.getElementById('booking-busy-hint');
   if (hint) hint.style.display = 'none';
 }
 
 let fpCheckin = null, fpCheckout = null;
-document.addEventListener('DOMContentLoaded', () => {
-  const disable = occupiedNights(BOOKED_RANGES);
+function initCalendars(allowPast) {
+  const disable = occupiedNights(activeRanges());
   const common  = { dateFormat:'Y-m-d', altInput:true, altFormat:'d/m/Y', locale:'ru', disable, onChange: calcTotal };
-  fpCheckin  = flatpickr('#booking-checkin',  { ...common, minDate:'today',
+  if (fpCheckin)  fpCheckin.destroy();
+  if (fpCheckout) fpCheckout.destroy();
+  fpCheckin  = flatpickr('#booking-checkin',  { ...common, minDate: allowPast ? null : 'today',
     onChange:(sel)=>{ if(sel[0]) fpCheckout.set('minDate', sel[0]); calcTotal(); } });
   fpCheckout = flatpickr('#booking-checkout', { ...common });
-});
+}
+document.addEventListener('DOMContentLoaded', () => initCalendars(false));
+
+// Открыть форму создания
+function openCreateBooking() {
+  excludeRange = null;
+  document.getElementById('form-booking').reset();
+  document.getElementById('booking-id').value = '';
+  document.getElementById('booking-modal-title').textContent = 'Новая бронь';
+  document.getElementById('booking-submit-btn').textContent  = 'Забронировать';
+  document.getElementById('total-block').style.display = 'none';
+  initCalendars(false);
+  if (fpCheckin) fpCheckin.clear();
+  if (fpCheckout) fpCheckout.clear();
+  openModal('modal-booking');
+}
+
+// Открыть форму редактирования
+function editBooking(id, b) {
+  excludeRange = { from: b.check_in, to: b.check_out };
+  document.getElementById('booking-id').value         = id;
+  document.getElementById('booking-modal-title').textContent = 'Редактировать бронь';
+  document.getElementById('booking-submit-btn').textContent  = 'Сохранить';
+  document.getElementById('booking-guest-name').value = b.guest_name || '';
+  document.getElementById('booking-guests').value     = b.guests || '';
+  document.getElementById('booking-rate').value       = b.rate || '';
+  document.getElementById('booking-discount').value   = b.discount || '';
+  document.getElementById('booking-notes').value      = b.notes || '';
+  initCalendars(true);   // при редактировании прошлые даты разрешены
+  fpCheckin.setDate(b.check_in, true);
+  fpCheckout.setDate(b.check_out, true);
+  calcTotal();
+  openModal('modal-booking');
+}
 
 function calcTotal() {
   const ci       = document.getElementById('booking-checkin').value;
@@ -81,6 +120,7 @@ async function submitBookingPage(e) {
   if (!ci || !co) { showToast('Выберите даты заезда и выезда', 'error'); return; }
   if (new Date(co) <= new Date(ci)) { showToast('Дата выезда должна быть позже заезда', 'error'); return; }
   if (rangeOverlaps(ci, co)) { showToast('❌ Эти даты уже заняты!', 'error'); return; }
+  const id = document.getElementById('booking-id').value;
   const body = {
     cottage_id: COTTAGE_ID,
     guest_name: document.getElementById('booking-guest-name').value.trim(),
@@ -91,10 +131,12 @@ async function submitBookingPage(e) {
     discount:   parseFloat(document.getElementById('booking-discount').value) || 0,
     notes:      document.getElementById('booking-notes').value.trim(),
   };
-  const res  = await fetch('/bookings', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
+  const url    = id ? `/bookings/${id}` : '/bookings';
+  const method = id ? 'PUT' : 'POST';
+  const res  = await fetch(url, { method, headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
   const data = await res.json();
   if (!res.ok) { showToast(data.error, 'error'); return; }
-  showToast('Бронь добавлена!', 'success');
+  showToast(id ? 'Бронь обновлена!' : 'Бронь добавлена!', 'success');
   closeModal('modal-booking');
   setTimeout(() => location.reload(), 700);
 }

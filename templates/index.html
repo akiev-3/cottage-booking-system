@@ -20,8 +20,9 @@
 <header>
   <h1>🏡 Управление объектами</h1>
   <div class="header-right">
-    <a href="/services" class="btn btn-outline">🛎️ Услуги</a>
-    <button class="btn btn-outline" onclick="seedDemo()" title="Сгенерировать тестовые брони и услуги">🎲 Демо</button>
+    {% if can('services_view') %}<a href="/services" class="btn btn-outline">🛎️ Услуги</a>{% endif %}
+    {% if can('bookings_edit') %}<button class="btn btn-outline" onclick="seedDemo()" title="Тестовые данные">🎲 Демо</button>{% endif %}
+    {% if can('excel') %}
     <button class="btn btn-excel" onclick="toggleExcelMenu(event)">⬇️ Excel ▾</button>
     <div id="excel-menu" class="dropdown-menu" style="display:none">
       <a href="/export/excel"               class="dropdown-item">📊 Все брони</a>
@@ -31,7 +32,9 @@
       <a href="/export/excel/owner/employee"  class="dropdown-item">👷 Сотрудники</a>
       <a href="/export/excel/owner/private"   class="dropdown-item">👤 Собственники</a>
     </div>
-    <button class="btn btn-primary" onclick="openAddCottage()">+ Добавить</button>
+    {% endif %}
+    {% if can('bookings_edit') %}<button class="btn btn-primary" onclick="openAddCottage()">+ Добавить</button>{% endif %}
+    <span class="role-badge">{{ role }}</span>
     <a href="/logout" class="btn btn-outline">Выйти</a>
   </div>
 </header>
@@ -58,10 +61,14 @@
     <div class="row-actions">
       {% if not is_priv %}
       <a href="/cottages/{{ c.id }}/bookings" class="btn btn-sm btn-primary" title="Брони">📅</a>
+      {% if can('bookings_edit') %}
       <button class="btn btn-sm btn-success" title="Новая бронь" onclick="openBookingModal({{ c.id }}, '{{ c.name|e }}', {{ c.capacity or 0 }}, {{ c.price_per_day or 0 }})">＋</button>
       {% endif %}
+      {% endif %}
+      {% if can('bookings_edit') %}
       <button class="btn btn-sm btn-outline" title="Изменить" onclick="editCottage({{ c.id }}, '{{ c.name|e }}', {{ c.capacity or 0 }}, {{ c.price_per_day or 0 }}, '{{ c.description|e }}', '{{ c.owner_type }}', '{{ (c.owner_name or '')|e }}', '{{ c.contacts|e }}', '{{ c.property_type }}', '{{ c.cottage_size or '' }}', {{ c.rooms or 0 }}, '{{ c.floor or '' }}')">✏️</button>
       <button class="btn btn-sm btn-danger" title="Удалить" onclick="deleteCottage({{ c.id }})">🗑️</button>
+      {% endif %}
     </div>
   {% endmacro %}
 
@@ -78,7 +85,7 @@
           {% elif detail == 'type' %}<th>Тип</th>{% endif %}
           <th>Вмест.</th><th>Комнат</th><th>Цена</th><th>Броней</th><th></th>
         </tr></thead>
-        <tbody class="sortable-rows" data-reorder="/cottages/reorder">
+        <tbody class="{% if can('bookings_edit') %}sortable-rows{% endif %}" data-reorder="/cottages/reorder">
           {% for c in items %}
           {% set pinfo = ptype_map.get(c.property_type, ptype_map['Коттедж']) %}
           <tr id="card-{{ c.id }}">
@@ -128,7 +135,7 @@
     <div class="objects-list-wrap">
       <table class="objects-list">
         <thead><tr><th class="num-col">№</th><th>Название</th><th>Тип</th><th>Собственник</th><th>Контакты</th><th>Описание</th><th></th></tr></thead>
-        <tbody class="sortable-rows" data-reorder="/cottages/reorder">
+        <tbody class="{% if can('bookings_edit') %}sortable-rows{% endif %}" data-reorder="/cottages/reorder">
           {% for c in privates %}
           {% set pinfo = ptype_map.get(c.property_type, ptype_map['Коттедж']) %}
           <tr id="card-{{ c.id }}">

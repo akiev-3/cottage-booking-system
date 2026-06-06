@@ -31,11 +31,11 @@
   .catalog-table th { background:var(--bg);padding:10px 14px;text-align:left;font-size:0.78rem;text-transform:uppercase;letter-spacing:0.04em;color:var(--muted);border-bottom:1px solid var(--border); }
   .catalog-table td { padding:10px 14px;border-bottom:1px solid var(--border);font-size:0.88rem;vertical-align:middle; }
   .catalog-table tr:last-child td { border-bottom:none; }
-  .catalog-table tr:hover td { background:#f8fafd; }
-  .inline-input { border:1.5px solid transparent;border-radius:6px;padding:4px 8px;font-size:0.88rem;background:transparent;font-family:inherit;color:var(--text);width:100%; }
-  .inline-input:focus { outline:none;border-color:var(--primary);background:#fff; }
-  .save-row-btn { display:none; }
-  .catalog-table tr:hover .save-row-btn { display:inline-flex; }
+  /* Подсветка строки без сдвига элементов */
+  .catalog-table tbody tr { transition: background 0.12s; }
+  .catalog-table tbody tr:hover td { background:#f1f5ff; }
+  .catalog-table .act-col { width:110px; text-align:right; }
+  .catalog-table .row-actions { display:flex; gap:6px; justify-content:flex-end; }
   .catalog-actions { display:flex; gap:8px; flex-wrap:wrap; margin-top:8px; }
 
   /* Таблица заказов — авто-ширина + горизонтальный скролл */
@@ -56,10 +56,11 @@
 
 <header>
   <div class="header-left">
-    <a href="/" class="back-link">← Коттеджи</a>
+    {% if can('bookings_view') %}<a href="/" class="back-link">← Объекты</a>{% endif %}
     <h1>🛎️ Услуги</h1>
   </div>
   <div class="header-right">
+    {% if can('excel') %}
     <button class="btn btn-excel" onclick="toggleSvcExcel(event)">⬇️ Excel ▾</button>
     <div id="svc-excel-menu" class="dropdown-menu" style="display:none">
       <a href="/export/excel/services" class="dropdown-item">📊 Все услуги</a>
@@ -67,7 +68,11 @@
       <a href="/export/excel/services/{{ key }}" class="dropdown-item">{{ label }}</a>
       {% endfor %}
     </div>
+    {% endif %}
+    {% if can('services_edit') %}
     <button class="btn btn-success" onclick="openModal('modal-order')">+ Новый заказ</button>
+    {% endif %}
+    <span class="role-badge">{{ role }}</span>
     <a href="/logout" class="btn btn-outline">Выйти</a>
   </div>
 </header>
@@ -95,10 +100,10 @@
             <th>#</th><th>Дата начала</th><th>Дата оконч.</th>
             <th>Услуга</th><th>Категория</th><th>Тип объекта</th><th>Объект</th>
             <th>Кол-во</th><th>Цена</th><th>Итого</th>
-            <th>Гос. номер</th><th>Заметки</th><th></th>
+            <th>Гос. номер</th><th>Заметки</th>{% if can('services_delete') %}<th></th>{% endif %}
           </tr>
         </thead>
-        <tbody id="orders-body">
+        <tbody id="orders-body"{% if can('services_edit') %} class="can-sort"{% endif %}>
           {% for o in orders %}
           <tr id="orow-{{ o.id }}" class="order-row" data-type="{{ o.object_key }}">
             <td>{{ loop.index }}</td>
@@ -113,7 +118,7 @@
             <td><strong>{{ "%.0f"|format(o.total) }} сом</strong></td>
             <td>{% if o.plate %}<span class="plate-badge">{{ o.plate }}</span>{% else %}—{% endif %}</td>
             <td class="notes-col">{{ o.notes }}</td>
-            <td><button class="btn btn-sm btn-danger" onclick="deleteOrder({{ o.id }})">🗑️</button></td>
+            {% if can('services_delete') %}<td><button class="btn btn-sm btn-danger" onclick="deleteOrder({{ o.id }})">🗑️</button></td>{% endif %}
           </tr>
           {% endfor %}
         </tbody>
@@ -141,17 +146,27 @@
         <div class="catalog-section">
           <h3>{{ cat }}</h3>
           <table class="catalog-table">
-            <thead><tr><th>Услуга</th><th>Ед.</th><th>Цена (сом)</th><th></th></tr></thead>
+            <thead><tr><th>Услуга</th><th>Ед.</th><th>Цена (сом)</th>{% if can('services_edit') %}<th class="act-col"></th>{% endif %}</tr></thead>
             <tbody>
               {% for item in items %}
               <tr id="crow-{{ item.id }}">
-                <td><input class="inline-input" id="cname-{{ item.id }}" value="{{ item.name }}" onchange="markChanged({{ item.id }})"></td>
-                <td style="width:80px"><input class="inline-input" id="cunit-{{ item.id }}" value="{{ item.unit }}" style="width:70px" onchange="markChanged({{ item.id }})"></td>
-                <td style="width:130px"><input class="inline-input" id="cprice-{{ item.id }}" type="number" value="{{ item.price }}" style="width:110px" onchange="markChanged({{ item.id }})"></td>
-                <td style="width:140px">
-                  <button id="csave-{{ item.id }}" class="btn btn-sm btn-primary save-row-btn" onclick="saveCatalogItem({{ item.id }}, '{{ owner_name }}')">Сохранить</button>
-                  <button class="btn btn-sm btn-danger" onclick="deleteCatalogItem({{ item.id }})">🗑️</button>
+                <td>
+                  <strong>{{ item.name }}</strong>
+                  {% if item.description %}<br><span class="muted-sm">{{ item.description }}</span>{% endif %}
                 </td>
+                <td>{{ item.unit }}</td>
+                <td>{{ "%.0f"|format(item.price) }}</td>
+                {% if can('services_edit') %}
+                <td class="act-col">
+                  <div class="row-actions">
+                    <button class="btn btn-sm btn-outline" title="Изменить"
+                            onclick="editService({{ item.id }}, '{{ item.category|e }}', '{{ item.name|e }}', '{{ item.unit|e }}', {{ item.price }}, '{{ (item.description or '')|e }}', '{{ owner_name }}')">✏️</button>
+                    {% if can('services_delete') %}
+                    <button class="btn btn-sm btn-danger" title="Удалить" onclick="deleteCatalogItem({{ item.id }})">🗑️</button>
+                    {% endif %}
+                  </div>
+                </td>
+                {% endif %}
               </tr>
               {% endfor %}
             </tbody>
@@ -161,9 +176,11 @@
       {% else %}
         <p style="color:var(--muted);margin-bottom:16px">Услуг пока нет.</p>
       {% endif %}
+      {% if can('services_edit') %}
       <div class="catalog-actions">
         <button class="btn btn-outline" onclick="openAddService('{{ owner_name }}')">+ Добавить услугу</button>
       </div>
+      {% endif %}
     {% endmacro %}
 
     {% for name, key, label in object_types %}
@@ -262,15 +279,16 @@
   </div>
 </div>
 
-<!-- Modal: Добавить услугу -->
+<!-- Modal: Добавить/редактировать услугу -->
 <div id="modal-add-service" class="modal-overlay" onclick="closeModalOverlay(event,'modal-add-service')">
   <div class="modal">
     <div class="modal-header">
-      <h3>Новая услуга — <span id="add-svc-owner-label"></span></h3>
+      <h3 id="svc-modal-title">Новая услуга — <span id="add-svc-owner-label"></span></h3>
       <button class="close-btn" onclick="closeModal('modal-add-service')">✕</button>
     </div>
     <form id="form-add-service" onsubmit="submitAddService(event)">
       <input type="hidden" id="new-svc-owner">
+      <input type="hidden" id="new-svc-id">
       <div class="form-group">
         <label>Категория *</label>
         <input type="text" id="new-svc-cat" required placeholder="Например: Уборка, Стирка, Парковка...">
@@ -289,9 +307,13 @@
           <input type="number" id="new-svc-price" required min="0" step="1" placeholder="0">
         </div>
       </div>
+      <div class="form-group">
+        <label>Описание</label>
+        <textarea id="new-svc-desc" rows="2" placeholder="Дополнительно (необязательно)"></textarea>
+      </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-outline" onclick="closeModal('modal-add-service')">Отмена</button>
-        <button type="submit" class="btn btn-primary">Добавить</button>
+        <button type="submit" class="btn btn-primary" id="svc-submit-btn">Добавить</button>
       </div>
     </form>
   </div>
@@ -465,27 +487,10 @@ async function deleteOrder(id) {
 }
 
 // ── Прайс-лист ───────────────────────────────────────────
-function markChanged(id) {
-  const btn=document.getElementById('csave-'+id);
-  if(btn) btn.style.display='inline-flex';
-}
-
-async function saveCatalogItem(id, ownerType) {
-  const body={
-    name:       document.getElementById('cname-'+id).value.trim(),
-    unit:       document.getElementById('cunit-'+id).value.trim(),
-    price:      document.getElementById('cprice-'+id).value,
-    owner_type: ownerType,
-  };
-  const res=await fetch('/service-catalog/'+id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
-  if(!res.ok){showToast('Ошибка','error');return;}
-  document.getElementById('csave-'+id).style.display='none';
-  showToast('Сохранено','success');
-}
-
 async function deleteCatalogItem(id) {
   if(!confirm('Удалить услугу из прайса?')) return;
-  await fetch('/service-catalog/'+id,{method:'DELETE'});
+  const res = await fetch('/service-catalog/'+id,{method:'DELETE'});
+  if(!res.ok){ showToast('Недостаточно прав','error'); return; }
   document.getElementById('crow-'+id)?.remove();
   showToast('Услуга удалена');
 }
@@ -496,8 +501,27 @@ const NAME_LABELS = {'Коттедж':'🏠 Коттеджи','Номер оте
 
 function openAddService(ownerName) {
   document.getElementById('form-add-service').reset();
+  document.getElementById('new-svc-id').value = '';
   document.getElementById('new-svc-owner').value = ownerName;
   document.getElementById('add-svc-owner-label').textContent = NAME_LABELS[ownerName] || ownerName;
+  document.getElementById('svc-modal-title').firstChild.textContent = 'Новая услуга — ';
+  document.getElementById('svc-submit-btn').textContent = 'Добавить';
+  localStorage.setItem('svcTab', 'catalog');
+  localStorage.setItem('svcCatTab', NAME_TO_KEY[ownerName] || 'cottage');
+  openModal('modal-add-service');
+}
+
+function editService(id, category, name, unit, price, desc, ownerName) {
+  document.getElementById('new-svc-id').value    = id;
+  document.getElementById('new-svc-owner').value = ownerName;
+  document.getElementById('new-svc-cat').value   = category;
+  document.getElementById('new-svc-name').value  = name;
+  document.getElementById('new-svc-unit').value  = unit;
+  document.getElementById('new-svc-price').value = price;
+  document.getElementById('new-svc-desc').value  = desc || '';
+  document.getElementById('add-svc-owner-label').textContent = NAME_LABELS[ownerName] || ownerName;
+  document.getElementById('svc-modal-title').firstChild.textContent = 'Редактировать — ';
+  document.getElementById('svc-submit-btn').textContent = 'Сохранить';
   localStorage.setItem('svcTab', 'catalog');
   localStorage.setItem('svcCatTab', NAME_TO_KEY[ownerName] || 'cottage');
   openModal('modal-add-service');
@@ -505,16 +529,20 @@ function openAddService(ownerName) {
 
 async function submitAddService(e) {
   e.preventDefault();
+  const id = document.getElementById('new-svc-id').value;
   const body={
-    category:   document.getElementById('new-svc-cat').value,
-    name:       document.getElementById('new-svc-name').value.trim(),
-    unit:       document.getElementById('new-svc-unit').value.trim()||'шт',
-    price:      document.getElementById('new-svc-price').value,
-    owner_type: document.getElementById('new-svc-owner').value,
+    category:    document.getElementById('new-svc-cat').value,
+    name:        document.getElementById('new-svc-name').value.trim(),
+    unit:        document.getElementById('new-svc-unit').value.trim()||'шт',
+    price:       document.getElementById('new-svc-price').value,
+    description: document.getElementById('new-svc-desc').value.trim(),
+    owner_type:  document.getElementById('new-svc-owner').value,
   };
-  const res=await fetch('/service-catalog',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
-  if(!res.ok){showToast('Ошибка','error');return;}
-  showToast('Услуга добавлена','success');
+  const url    = id ? '/service-catalog/'+id : '/service-catalog';
+  const method = id ? 'PUT' : 'POST';
+  const res=await fetch(url,{method,headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  if(!res.ok){ const d=await res.json().catch(()=>({})); showToast(d.error||'Ошибка','error'); return; }
+  showToast(id ? 'Услуга обновлена' : 'Услуга добавлена','success');
   closeModal('modal-add-service');
   setTimeout(()=>location.reload(),600);
 }
@@ -546,10 +574,10 @@ onOwnerTypeChange();
   if (idx >= 0 && btns[idx]) filterOrders(ordFilter, btns[idx]);
 })();
 
-// ── Drag-and-drop сортировка заказов ──
+// ── Drag-and-drop сортировка заказов (только при праве на редактирование) ──
 (function initOrdersSortable() {
   const tbody = document.getElementById('orders-body');
-  if (!tbody || typeof Sortable === 'undefined') return;
+  if (!tbody || !tbody.classList.contains('can-sort') || typeof Sortable === 'undefined') return;
   Sortable.create(tbody, {
     animation: 150,
     handle: 'td',

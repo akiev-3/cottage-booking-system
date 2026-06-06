@@ -22,9 +22,9 @@
     <h1>{{ cottage.name }}</h1>
   </div>
   <div style="display:flex;gap:10px;align-items:center">
-    <a href="/services" class="btn btn-outline">🛎️ Услуги</a>
-    <a href="/export/excel/{{ cottage.id }}" class="btn btn-excel">⬇️ Excel</a>
-    <button class="btn btn-success" onclick="openModal('modal-booking')">+ Новая бронь</button>
+    {% if can('services_view') %}<a href="/services" class="btn btn-outline">🛎️ Услуги</a>{% endif %}
+    {% if can('excel') %}<a href="/export/excel/{{ cottage.id }}" class="btn btn-excel">⬇️ Excel</a>{% endif %}
+    {% if can('bookings_edit') %}<button class="btn btn-success" onclick="openCreateBooking()">+ Новая бронь</button>{% endif %}
     <a href="/logout" class="btn btn-outline">Выйти</a>
   </div>
 </header>
@@ -53,7 +53,7 @@
             <th class="col-lg">Курс</th>
             <th class="col-md">Сумма (сом)</th>
             <th class="col-xl">Заметки</th>
-            <th></th>
+            {% if can('bookings_edit') %}<th></th>{% endif %}
           </tr>
         </thead>
         <tbody id="bookings-body">
@@ -73,7 +73,15 @@
             <td class="col-lg">{{ b.rate }}</td>
             <td class="col-md">{{ "%.0f"|format(b.total_som) }} сом</td>
             <td class="col-xl notes-cell">{{ b.notes }}</td>
-            <td><button class="btn btn-sm btn-danger" onclick="deleteBooking({{ b.id }})">🗑️</button></td>
+            {% if can('bookings_edit') %}
+            <td>
+              <div class="row-actions">
+                <button class="btn btn-sm btn-outline" title="Изменить"
+                        onclick='editBooking({{ b.id }}, {{ {"guest_name": b.guest_name, "check_in": b.check_in, "check_out": b.check_out, "guests": b.guests, "rate": b.rate, "discount": b.discount, "notes": b.notes}|tojson }})'>✏️</button>
+                <button class="btn btn-sm btn-danger" title="Удалить" onclick="deleteBooking({{ b.id }})">🗑️</button>
+              </div>
+            </td>
+            {% endif %}
           </tr>
           {% endfor %}
         </tbody>
@@ -91,10 +99,11 @@
 <div id="modal-booking" class="modal-overlay" onclick="closeModalOverlay(event, 'modal-booking')">
   <div class="modal">
     <div class="modal-header">
-      <h3>Новая бронь — {{ cottage.name }}</h3>
+      <h3 id="booking-modal-title">Новая бронь — {{ cottage.name }}</h3>
       <button class="close-btn" onclick="closeModal('modal-booking')">✕</button>
     </div>
     <form id="form-booking" onsubmit="submitBookingPage(event)">
+      <input type="hidden" id="booking-id" value="">
       <div class="form-group">
         <label>Имя гостя *</label>
         <input type="text" id="booking-guest-name" required placeholder="Иванов Иван">
@@ -143,7 +152,7 @@
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-outline" onclick="closeModal('modal-booking')">Отмена</button>
-        <button type="submit" class="btn btn-success">Забронировать</button>
+        <button type="submit" class="btn btn-success" id="booking-submit-btn">Забронировать</button>
       </div>
     </form>
   </div>

@@ -14,9 +14,38 @@ import psycopg2.extras
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "cottage-secret-2024-change-me")
 
-# ── Учётные данные ────────────────────────────────────────
-LOGIN    = "admin"
-PASSWORD = generate_password_hash(os.environ.get("APP_PASSWORD", "1234"))
+# ── Пользователи и роли ───────────────────────────────────
+# Пароли можно переопределить переменными окружения на Railway.
+USERS = {
+    "admin": {
+        "password": generate_password_hash(os.environ.get("APP_PASSWORD", "1234")),
+        "role": "admin",
+    },
+    "services": {  # сотрудник по услугам
+        "password": generate_password_hash(os.environ.get("SERVICES_PASSWORD", "services123")),
+        "role": "services",
+    },
+    "reports": {   # сотрудник для отчётов
+        "password": generate_password_hash(os.environ.get("REPORTS_PASSWORD", "reports123")),
+        "role": "reports",
+    },
+}
+
+# Набор прав каждой роли
+ROLE_PERMS = {
+    "admin":    {"bookings_view", "bookings_edit", "services_view", "services_edit",
+                 "services_delete", "excel", "manage_users"},
+    "services": {"services_view", "services_edit"},
+    "reports":  {"services_view", "bookings_view", "excel"},
+}
+
+
+def current_role():
+    return session.get("role")
+
+
+def has_perm(perm):
+    return perm in ROLE_PERMS.get(current_role(), set())
 
 
 def login_required(f):
@@ -26,6 +55,26 @@ def login_required(f):
             return redirect(url_for("login_page"))
         return f(*args, **kwargs)
     return decorated
+
+
+def require_perm(perm):
+    """Декоратор: требует конкретное право. Иначе 403 (или редирект на доступную страницу)."""
+    def wrapper(f):
+        @wraps(f)
+        def decorated(*args, **kwargs):
+            if not session.get("logged_in"):
+                return redirect(url_for("login_page"))
+            if not has_perm(perm):
+                # Для API — 403 JSON, для страниц — редирект на стартовую доступную
+                if request.path.startswith(("/export", "/cottages", "/bookings", "/service", "/settings", "/seed")) \
+                   and request.method != "GET":
+                    return jsonify({"error": "Недостаточно прав"}), 403
+                if request.is_json or request.method != "GET":
+                    return jsonify({"error": "Недостаточно прав"}), 403
+                return redirect(url_for("home_redirect"))
+            return f(*args, **kwargs)
+        return decorated
+    return wrapper
 
 
 # ── База данных ───────────────────────────────────────────
@@ -120,7 +169,8 @@ def init_db():
         )
     """)
     # Миграция: owner_type → канонические типы объектов
-    cur.execute("ALTER TABLE service_catalog ADD COLUMN IF NOT EXISTS owner_type VARCHAR(50) DEFAULT 'Коттедж'")
+    cur.execute("ALTER TABLE service_catalog ADD COLUMN IF NOT EXISTS owner_type  VARCHAR(50) DEFAULT 'Коттедж'")
+    cur.execute("ALTER TABLE service_catalog ADD COLUMN IF NOT EXISTS description TEXT        DEFAULT ''")
     cur.execute("UPDATE service_catalog SET owner_type = 'Коттедж'     WHERE owner_type IN ('Алма-Ата','Коттеджи')")
     cur.execute("UPDATE service_catalog SET owner_type = 'Номер отеля' WHERE owner_type = 'Номера отеля'")
     # Заполняем дефолтный прайс-лист (только если пустой)
@@ -220,18 +270,28 @@ def get_rate(cur) -> float:
 app.jinja_env.filters["fmtdate"] = fmt_date
 
 
+@app.context_processor
+def inject_perms():
+    """Доступно во всех шаблонах: role, can('perm')."""
+    return {"role": current_role(), "can": has_perm}
+
+
 # ── Auth ──────────────────────────────────────────────────
 
 @app.route("/login", methods=["GET", "POST"])
 def login_page():
     if session.get("logged_in"):
-        return redirect(url_for("index"))
+        return redirect(url_for("home_redirect"))
     error = None
     if request.method == "POST":
-        if (request.form.get("username") == LOGIN and
-                check_password_hash(PASSWORD, request.form.get("password", ""))):
+        username = request.form.get("username", "")
+        password = request.form.get("password", "")
+        user = USERS.get(username)
+        if user and check_password_hash(user["password"], password):
             session["logged_in"] = True
-            return redirect(url_for("index"))
+            session["role"]      = user["role"]
+            session["username"]  = username
+            return redirect(url_for("home_redirect"))
         error = "Неверный логин или пароль"
     return render_template("login.html", error=error)
 
@@ -242,10 +302,21 @@ def logout():
     return redirect(url_for("login_page"))
 
 
+@app.route("/home")
+@login_required
+def home_redirect():
+    """Отправляет пользователя на доступную ему стартовую страницу."""
+    if has_perm("bookings_view"):
+        return redirect(url_for("index"))
+    if has_perm("services_view"):
+        return redirect(url_for("services_page"))
+    return redirect(url_for("logout"))
+
+
 # ── Main ──────────────────────────────────────────────────
 
 @app.route("/")
-@login_required
+@require_perm("bookings_view")
 def index():
     conn = get_db()
     cur  = conn.cursor()
@@ -264,7 +335,7 @@ def index():
 # ── Settings ──────────────────────────────────────────────
 
 @app.route("/settings", methods=["GET"])
-@login_required
+@require_perm("bookings_view")
 def get_settings():
     conn = get_db(); cur = conn.cursor()
     rate = get_rate(cur)
@@ -273,7 +344,7 @@ def get_settings():
 
 
 @app.route("/settings", methods=["POST"])
-@login_required
+@require_perm("bookings_edit")
 def update_settings():
     body = request.json
     conn = get_db(); cur = conn.cursor()
@@ -288,7 +359,7 @@ def update_settings():
 # ── Cottages ──────────────────────────────────────────────
 
 @app.route("/cottages", methods=["POST"])
-@login_required
+@require_perm("bookings_edit")
 def create_cottage():
     body = request.json
     conn = get_db(); cur = conn.cursor()
@@ -316,7 +387,7 @@ def create_cottage():
 
 
 @app.route("/cottages/<int:cottage_id>", methods=["PUT"])
-@login_required
+@require_perm("bookings_edit")
 def update_cottage(cottage_id):
     body = request.json
     conn = get_db(); cur = conn.cursor()
@@ -346,7 +417,7 @@ def update_cottage(cottage_id):
 
 
 @app.route("/cottages/<int:cottage_id>", methods=["DELETE"])
-@login_required
+@require_perm("bookings_edit")
 def delete_cottage(cottage_id):
     conn = get_db(); cur = conn.cursor()
     cur.execute("DELETE FROM cottages WHERE id = %s", (cottage_id,))
@@ -371,7 +442,7 @@ def _reorder(table, ids):
 
 
 @app.route("/cottages/reorder", methods=["POST"])
-@login_required
+@require_perm("bookings_edit")
 def reorder_cottages():
     ids = [int(x) for x in (request.json.get("ids") or [])]
     n = _reorder("cottages", ids)
@@ -379,7 +450,7 @@ def reorder_cottages():
 
 
 @app.route("/service-orders/reorder", methods=["POST"])
-@login_required
+@require_perm("services_edit")
 def reorder_service_orders():
     ids = [int(x) for x in (request.json.get("ids") or [])]
     n = _reorder("service_orders", ids)
@@ -389,7 +460,7 @@ def reorder_service_orders():
 # ── Демо-данные ───────────────────────────────────────────
 
 @app.route("/seed-demo", methods=["GET", "POST"])
-@login_required
+@require_perm("bookings_edit")
 def seed_demo():
     """Генерирует тестовые брони и заказы услуг для объектов компании."""
     from datetime import timedelta
@@ -512,7 +583,7 @@ def _do_seed(cur, conn, timedelta, random):
 # ── Bookings ──────────────────────────────────────────────
 
 @app.route("/bookings", methods=["GET"])
-@login_required
+@require_perm("bookings_view")
 def get_bookings():
     cottage_id = request.args.get("cottage_id", type=int)
     conn = get_db(); cur = conn.cursor()
@@ -526,7 +597,7 @@ def get_bookings():
 
 
 @app.route("/bookings", methods=["POST"])
-@login_required
+@require_perm("bookings_edit")
 def create_booking():
     body       = request.json
     cottage_id = int(body["cottage_id"])
@@ -588,8 +659,75 @@ def create_booking():
     return jsonify(booking), 201
 
 
+@app.route("/bookings/<int:booking_id>", methods=["PUT"])
+@require_perm("bookings_edit")
+def update_booking(booking_id):
+    body = request.json
+    conn = get_db(); cur = conn.cursor()
+
+    cur.execute("SELECT * FROM bookings WHERE id = %s", (booking_id,))
+    existing = cur.fetchone()
+    if not existing:
+        cur.close(); conn.close()
+        return jsonify({"error": "Бронь не найдена"}), 404
+
+    # Коттедж: можно сменить объект
+    cottage_id = int(body.get("cottage_id") or existing["cottage_id"])
+    cur.execute("SELECT * FROM cottages WHERE id = %s", (cottage_id,))
+    cottage = cur.fetchone()
+    if not cottage:
+        cur.close(); conn.close()
+        return jsonify({"error": "Объект не найден"}), 404
+
+    check_in  = body.get("check_in")  or str(existing["check_in"])
+    check_out = body.get("check_out") or str(existing["check_out"])
+    guests    = int(body.get("guests") or existing["guests"])
+
+    if guests > cottage["capacity"]:
+        cur.close(); conn.close()
+        return jsonify({"error": f"Максимум гостей: {cottage['capacity']}"}), 400
+
+    ci = datetime.strptime(check_in,  "%Y-%m-%d").date()
+    co = datetime.strptime(check_out, "%Y-%m-%d").date()
+    if co <= ci:
+        cur.close(); conn.close()
+        return jsonify({"error": "Дата выезда должна быть позже даты заезда"}), 400
+
+    # Проверка пересечений — исключая саму редактируемую бронь
+    cur.execute("""
+        SELECT id, check_in, check_out FROM bookings
+        WHERE cottage_id = %s AND id <> %s AND check_in < %s AND check_out > %s
+    """, (cottage_id, booking_id, co, ci))
+    conflict = cur.fetchone()
+    if conflict:
+        cur.close(); conn.close()
+        return jsonify({"error": f"Даты пересекаются с бронью #{conflict['id']} ({fmt_date(conflict['check_in'])} – {fmt_date(conflict['check_out'])})"}), 409
+
+    nights       = (co - ci).days
+    total_before = nights * cottage["price_per_day"]
+    discount     = max(0, float(body.get("discount") if body.get("discount") is not None else existing["discount"] or 0))
+    total        = round(max(0, total_before - discount), 2)
+    rate         = float(body.get("rate") or existing["rate"] or get_rate(cur))
+    total_som    = round(total * rate)
+
+    cur.execute("""
+        UPDATE bookings SET cottage_id=%s, cottage_name=%s, guest_name=%s, guests=%s,
+                            check_in=%s, check_out=%s, nights=%s, discount=%s,
+                            total_before_discount=%s, total=%s, rate=%s, total_som=%s, notes=%s
+        WHERE id=%s RETURNING *
+    """, (cottage_id, cottage["name"],
+          body.get("guest_name", existing["guest_name"]), guests,
+          ci, co, nights, discount, total_before, total, rate, total_som,
+          body.get("notes", existing["notes"]), booking_id))
+    booking = dict(cur.fetchone())
+    conn.commit(); cur.close(); conn.close()
+    booking["check_in"]  = str(booking["check_in"])
+    booking["check_out"] = str(booking["check_out"])
+    return jsonify(booking)
+
+
 @app.route("/bookings/<int:booking_id>", methods=["DELETE"])
-@login_required
+@require_perm("bookings_edit")
 def delete_booking(booking_id):
     conn = get_db(); cur = conn.cursor()
     cur.execute("DELETE FROM bookings WHERE id = %s", (booking_id,))
@@ -598,7 +736,7 @@ def delete_booking(booking_id):
 
 
 @app.route("/cottages/<int:cottage_id>/booked-ranges")
-@login_required
+@require_perm("bookings_view")
 def cottage_booked_ranges(cottage_id):
     """Занятые диапазоны дат объекта — для подсветки в календаре."""
     conn = get_db(); cur = conn.cursor()
@@ -609,7 +747,7 @@ def cottage_booked_ranges(cottage_id):
 
 
 @app.route("/cottages/<int:cottage_id>/bookings")
-@login_required
+@require_perm("bookings_view")
 def cottage_bookings_page(cottage_id):
     conn = get_db(); cur = conn.cursor()
     cur.execute("SELECT * FROM cottages WHERE id = %s", (cottage_id,))
@@ -650,7 +788,7 @@ OBJ_KEY = {name: key for name, key, _ in OBJECT_TYPES}      # 'Коттедж' �
 OBJ_LABEL = {name: lbl for name, _, lbl in OBJECT_TYPES}
 
 @app.route("/services")
-@login_required
+@require_perm("services_view")
 def services_page():
     conn = get_db(); cur = conn.cursor()
     cur.execute("SELECT * FROM service_catalog ORDER BY owner_type, category, id")
@@ -695,15 +833,17 @@ def services_page():
 
 
 @app.route("/service-catalog/<int:item_id>", methods=["PUT"])
-@login_required
+@require_perm("services_edit")
 def update_catalog_item(item_id):
     body = request.json
     conn = get_db(); cur = conn.cursor()
     cur.execute("""
-        UPDATE service_catalog SET name=%s, price=%s, unit=%s, owner_type=%s
+        UPDATE service_catalog SET category=%s, name=%s, price=%s, unit=%s,
+                                   description=%s, owner_type=%s
         WHERE id=%s RETURNING *
-    """, (body["name"], float(body["price"]), body["unit"],
-          body.get("owner_type","Алма-Ата"), item_id))
+    """, (body.get("category","Услуга"), body["name"], float(body["price"]),
+          body.get("unit","шт"), body.get("description",""),
+          body.get("owner_type","Коттедж"), item_id))
     row = cur.fetchone()
     conn.commit(); cur.close(); conn.close()
     if not row: return jsonify({"error": "Не найдено"}), 404
@@ -711,23 +851,23 @@ def update_catalog_item(item_id):
 
 
 @app.route("/service-catalog", methods=["POST"])
-@login_required
+@require_perm("services_edit")
 def add_catalog_item():
     body = request.json
     conn = get_db(); cur = conn.cursor()
     cur.execute("""
-        INSERT INTO service_catalog (category, name, unit, price, has_plate, owner_type)
-        VALUES (%s,%s,%s,%s,%s,%s) RETURNING *
+        INSERT INTO service_catalog (category, name, unit, price, has_plate, owner_type, description)
+        VALUES (%s,%s,%s,%s,%s,%s,%s) RETURNING *
     """, (body["category"], body["name"], body.get("unit","шт"),
           float(body["price"]), body.get("has_plate", False),
-          body.get("owner_type","Коттедж")))
+          body.get("owner_type","Коттедж"), body.get("description","")))
     row = dict(cur.fetchone())
     conn.commit(); cur.close(); conn.close()
     return jsonify(row), 201
 
 
 @app.route("/service-catalog/<int:item_id>", methods=["DELETE"])
-@login_required
+@require_perm("services_delete")
 def delete_catalog_item(item_id):
     conn = get_db(); cur = conn.cursor()
     cur.execute("DELETE FROM service_catalog WHERE id=%s", (item_id,))
@@ -736,7 +876,7 @@ def delete_catalog_item(item_id):
 
 
 @app.route("/service-orders", methods=["POST"])
-@login_required
+@require_perm("services_edit")
 def create_service_order():
     body = request.json
     conn = get_db(); cur = conn.cursor()
@@ -802,7 +942,7 @@ def create_service_order():
 
 
 @app.route("/service-orders/<int:order_id>", methods=["DELETE"])
-@login_required
+@require_perm("services_delete")
 def delete_service_order(order_id):
     conn = get_db(); cur = conn.cursor()
     cur.execute("DELETE FROM service_orders WHERE id=%s", (order_id,))
@@ -893,7 +1033,7 @@ def _fetch_service_orders(cur, object_type=None):
 
 
 @app.route("/export/excel/services")
-@login_required
+@require_perm("excel")
 def export_excel_services():
     conn = get_db(); cur = conn.cursor()
     orders = _fetch_service_orders(cur)
@@ -907,7 +1047,7 @@ def export_excel_services():
 
 
 @app.route("/export/excel/services/<obj_key>")
-@login_required
+@require_perm("excel")
 def export_excel_services_by_type(obj_key):
     """Экспорт услуг по типу объекта: cottage / hotel / apartment / employee / private."""
     KEY_TO_NAME = {key: name for name, key, _ in OBJECT_TYPES}
@@ -989,7 +1129,7 @@ def _write_totals(ws, bookings, total_row):
 
 
 @app.route("/export/excel")
-@login_required
+@require_perm("excel")
 def export_excel():
     conn = get_db(); cur = conn.cursor()
     cur.execute("SELECT * FROM cottages ORDER BY position, id")
@@ -1054,7 +1194,7 @@ def export_excel():
 
 
 @app.route("/export/excel/<int:cottage_id>")
-@login_required
+@require_perm("excel")
 def export_excel_cottage(cottage_id):
     conn=get_db(); cur=conn.cursor()
     cur.execute("SELECT * FROM cottages WHERE id=%s",(cottage_id,))
@@ -1105,7 +1245,7 @@ def _to_csv(bookings):
     return buf
 
 @app.route("/export/csv")
-@login_required
+@require_perm("excel")
 def export_csv():
     conn=get_db(); cur=conn.cursor()
     cur.execute("SELECT * FROM bookings ORDER BY check_in")
@@ -1117,7 +1257,7 @@ def export_csv():
         download_name=f"broni_{date.today()}.csv")
 
 @app.route("/export/csv/<int:cottage_id>")
-@login_required
+@require_perm("excel")
 def export_csv_cottage(cottage_id):
     conn=get_db(); cur=conn.cursor()
     cur.execute("SELECT * FROM cottages WHERE id=%s",(cottage_id,))
@@ -1141,7 +1281,7 @@ with app.app_context():
         print(f"DB init skipped (no DATABASE_URL?): {e}")
 
 @app.route("/export/excel/owner/<owner_type>")
-@login_required
+@require_perm("excel")
 def export_excel_by_owner(owner_type):
     MAP = {
         "company":   ("Коттеджи",       "owner_type='Компания' AND property_type='Коттедж'"),

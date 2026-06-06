@@ -13,6 +13,49 @@ function renumberRows(tbody) {
   });
 }
 
+// Сохранение порядка: не более одного запроса одновременно + мягкая
+// пересинхронизация вида после того, как пользователь закончил перетаскивать.
+// Это убирает «багающийся» порядок при нескольких быстрых перестановках.
+const _orderSave = { busy: false, pending: null, timer: null };
+
+function queueRowOrder(tbody, idPrefix) {
+  clearTimeout(_orderSave.timer);             // пользователь ещё двигает — не перезагружаем
+  _orderSave.pending = { tbody, idPrefix };
+  flushRowOrder();
+}
+
+async function flushRowOrder() {
+  if (_orderSave.busy || !_orderSave.pending) return;
+  const { tbody, idPrefix } = _orderSave.pending;
+  _orderSave.pending = null;
+  _orderSave.busy = true;
+  const url = tbody.dataset.reorder;
+  const ids = Array.from(tbody.querySelectorAll('tr'))
+                   .map(tr => (tr.id || '').replace(idPrefix, ''))
+                   .filter(Boolean);
+  try {
+    await fetch(url, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ ids }) });
+    showToast('Порядок сохранён', 'success');
+  } catch (_) { showToast('Не удалось сохранить порядок', 'error'); }
+  _orderSave.busy = false;
+  if (_orderSave.pending) { flushRowOrder(); return; }   // за время запроса появились новые изменения
+  // всё сохранено — через паузу пересинхронизируем DOM с базой (сохраняя прокрутку)
+  _orderSave.timer = setTimeout(() => {
+    try { sessionStorage.setItem('reorderScroll', String(window.scrollY)); } catch (_) {}
+    location.reload();
+  }, 800);
+}
+
+// Восстановление прокрутки после пересинхронизации
+document.addEventListener('DOMContentLoaded', () => {
+  let sy = null;
+  try { sy = sessionStorage.getItem('reorderScroll'); } catch (_) {}
+  if (sy !== null) {
+    try { sessionStorage.removeItem('reorderScroll'); } catch (_) {}
+    window.scrollTo(0, parseInt(sy, 10) || 0);
+  }
+});
+
 function initSortable() {
   if (typeof Sortable === 'undefined') return;
   document.querySelectorAll('tbody.sortable-rows').forEach(tbody => {
@@ -21,17 +64,7 @@ function initSortable() {
       handle: 'td',                 // тянуть за любую ячейку
       filter: '.row-actions, button, a, input',  // кроме кнопок
       preventOnFilter: false,
-      onEnd: async () => {
-        renumberRows(tbody);
-        const ids = Array.from(tbody.querySelectorAll('tr'))
-                         .map(tr => (tr.id || '').replace('card-', ''))
-                         .filter(Boolean);
-        const url = tbody.dataset.reorder;
-        try {
-          await fetch(url, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ ids }) });
-          showToast('Порядок сохранён', 'success');
-        } catch (_) { showToast('Не удалось сохранить порядок', 'error'); }
-      }
+      onEnd: () => { renumberRows(tbody); queueRowOrder(tbody, 'card-'); }
     });
   });
 }

@@ -473,17 +473,35 @@ def delete_cottage(cottage_id):
 
 
 def _reorder(table, ids):
-    """Перестановка: новые id в порядке ids получают существующие позиции (в том же диапазоне)."""
+    """Перестановка строк, устойчивая к повторным перетаскиваниям и фильтрам.
+
+    `ids` — желаемый порядок ПОДМНОЖЕСТВА строк (например, видимой вкладки).
+    Алгоритм:
+      1. читаем глобальный порядок всех строк (position, id);
+      2. в «слоты», занятые подмножеством, подставляем его в новом порядке —
+         относительный порядок остальных строк сохраняется;
+      3. плотно перенумеровываем позиции 1..N.
+    Плотная перенумерация исключает дубли/разрывы позиций, из-за которых
+    при ORDER BY position,id порядок «слетал» после нескольких перестановок.
+    """
+    ids = [int(x) for x in ids]
     if not ids:
         return 0
     conn = get_db(); cur = conn.cursor()
-    cur.execute(f"SELECT position FROM {table} WHERE id = ANY(%s)", (ids,))
-    positions = sorted(r["position"] for r in cur.fetchall())
-    # если позиций меньше чем id (рассинхрон) — добиваем по порядку
-    while len(positions) < len(ids):
-        positions.append((positions[-1] if positions else 0) + 1)
-    for new_pos, oid in zip(positions, ids):
-        cur.execute(f"UPDATE {table} SET position = %s WHERE id = %s", (new_pos, oid))
+    cur.execute(f"SELECT id FROM {table} ORDER BY position, id")
+    all_ids = [r["id"] for r in cur.fetchall()]
+    id_set  = set(ids)
+    new_iter = iter(ids)
+    result = []
+    for oid in all_ids:
+        result.append(next(new_iter) if oid in id_set else oid)
+    # подстраховка: id из запроса, которых нет в таблице (рассинхрон) — в конец
+    seen = set(result)
+    for oid in ids:
+        if oid not in seen:
+            result.append(oid); seen.add(oid)
+    for pos, oid in enumerate(result, 1):
+        cur.execute(f"UPDATE {table} SET position = %s WHERE id = %s", (pos, oid))
     conn.commit(); cur.close(); conn.close()
     return len(ids)
 

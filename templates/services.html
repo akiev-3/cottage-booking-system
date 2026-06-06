@@ -725,6 +725,44 @@ onOwnerTypeChange();
 })();
 
 // ── Drag-and-drop сортировка заказов (только при праве на редактирование) ──
+// Сохранение порядка: один запрос за раз + мягкая пересинхронизация вида,
+// чтобы порядок не «слетал» при нескольких быстрых перестановках.
+const _ordSave = { busy: false, pending: false, timer: null };
+
+function _ordRenumber(tbody) {
+  let n = 0;
+  tbody.querySelectorAll('tr').forEach(tr => {
+    if (tr.style.display === 'none') return;
+    const cell = tr.querySelector('td.num-col');
+    if (cell) cell.textContent = ++n;
+  });
+}
+
+function _queueOrderSave(tbody) {
+  clearTimeout(_ordSave.timer);
+  _ordSave.pending = true;
+  _flushOrderSave(tbody);
+}
+
+async function _flushOrderSave(tbody) {
+  if (_ordSave.busy || !_ordSave.pending) return;
+  _ordSave.pending = false;
+  _ordSave.busy = true;
+  const ids = Array.from(tbody.querySelectorAll('tr'))
+                   .map(tr => (tr.id || '').replace('orow-', ''))
+                   .filter(Boolean);
+  try {
+    await fetch('/service-orders/reorder', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ids})});
+    showToast('Порядок сохранён','success');
+  } catch(_) { showToast('Ошибка сохранения порядка','error'); }
+  _ordSave.busy = false;
+  if (_ordSave.pending) { _flushOrderSave(tbody); return; }
+  _ordSave.timer = setTimeout(() => {
+    try { sessionStorage.setItem('svcReorderScroll', String(window.scrollY)); } catch(_) {}
+    location.reload();
+  }, 800);
+}
+
 (function initOrdersSortable() {
   const tbody = document.getElementById('orders-body');
   if (!tbody || !tbody.classList.contains('can-sort') || typeof Sortable === 'undefined') return;
@@ -733,24 +771,19 @@ onOwnerTypeChange();
     handle: 'td',
     filter: 'button, a',
     preventOnFilter: false,
-    onEnd: async () => {
-      // перенумеровать видимые строки
-      let n = 0;
-      tbody.querySelectorAll('tr').forEach(tr => {
-        if (tr.style.display === 'none') return;
-        const cell = tr.querySelector('td.num-col');
-        if (cell) cell.textContent = ++n;
-      });
-      const ids = Array.from(tbody.querySelectorAll('tr'))
-                       .map(tr => (tr.id || '').replace('orow-', ''))
-                       .filter(Boolean);
-      try {
-        await fetch('/service-orders/reorder', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ids})});
-        showToast('Порядок сохранён','success');
-      } catch(_) { showToast('Ошибка сохранения порядка','error'); }
-    }
+    onEnd: () => { _ordRenumber(tbody); _queueOrderSave(tbody); }
   });
 })();
+
+// Восстановление прокрутки после пересинхронизации порядка
+document.addEventListener('DOMContentLoaded', () => {
+  let sy = null;
+  try { sy = sessionStorage.getItem('svcReorderScroll'); } catch(_) {}
+  if (sy !== null) {
+    try { sessionStorage.removeItem('svcReorderScroll'); } catch(_) {}
+    window.scrollTo(0, parseInt(sy, 10) || 0);
+  }
+});
 </script>
 </body>
 </html>

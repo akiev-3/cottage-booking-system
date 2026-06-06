@@ -319,16 +319,6 @@ async function submitBooking(e) {
   setTimeout(() => location.reload(), 600);  // обновить счётчик броней
 }
 
-// ── Аванс: ввод в долларах → пересчёт в сомы по глобальному курсу ──
-function depositFromUsd() {
-  const usdEl = document.getElementById('booking-deposit-usd');
-  const depEl = document.getElementById('booking-deposit');
-  if (!usdEl || !depEl) return;
-  const usd = parseFloat(usdEl.value);
-  if (usd > 0 && RATE) depEl.value = Math.round(usd * RATE);
-  else if (!usd) depEl.value = '';
-}
-
 // ── Глобальный курс доллара (редактирование на главном экране) ──
 function openRateEdit() {
   const disp = document.getElementById('rate-display');

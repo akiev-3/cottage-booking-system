@@ -1269,9 +1269,22 @@ def export_excel_services_all():
 # ── Excel helpers ─────────────────────────────────────────
 
 BOOK_HEADERS = ["№","Коттеджи / Квартиры / Номера","Гость","Заезд","Выезд",
-                "Ночей","Гостей","Скидка ($)","Сумма ($)","Сумма (сом)","Курс","Заметки"]
-BOOK_WIDTHS  = [6,30,22,13,13,8,8,11,13,14,8,30]
-CENTER_COLS  = {1,6,7,8,9,10,11}
+                "Ночей","Гостей","Скидка ($)","Сумма ($)","Аванс ($)","Сумма (сом)","Курс","Статус","Заметки"]
+BOOK_WIDTHS  = [6,30,22,13,13,8,8,11,13,11,14,8,12,30]
+CENTER_COLS  = {1,6,7,8,9,10,11,12,13}
+
+_STATUS_LABELS = {"active":"Активна","cancelled":"Отменена","paid":"Оплачена"}
+
+def _effective_total(b):
+    """Для отменённых броней учитывается только аванс (невозвратный)."""
+    if b.get("status") == "cancelled":
+        return float(b.get("deposit_paid") or 0)
+    return float(b.get("total") or 0)
+
+def _effective_som(b):
+    if b.get("status") == "cancelled":
+        return round(_effective_total(b) * (b.get("rate") or 1))
+    return round(b.get("total_som") or 0)
 
 def _header_fill(color): return PatternFill("solid", fgColor=color)
 def _thin_border():
@@ -1285,7 +1298,11 @@ def _booking_row(b, seq_num):
         fmt_date(b["check_in"]), fmt_date(b["check_out"]),
         b["nights"], b["guests"],
         f"-${discount}" if discount else "—",
-        b["total"], round(b["total_som"] or 0), b["rate"],
+        _effective_total(b),
+        b.get("deposit_paid") or 0,
+        _effective_som(b),
+        b["rate"],
+        _STATUS_LABELS.get(b.get("status") or "active", "Активна"),
         b.get("notes",""),
     ]
 
@@ -1305,8 +1322,14 @@ def _write_rows(ws, bookings, start=2):
     border = _thin_border()
     last   = start - 1
     for seq, (row_i, b) in enumerate(zip(range(start, start + len(bookings)), bookings), 1):
+        status   = b.get("status") or "active"
         is_past  = str(b["check_out"]) < today
-        row_fill = PatternFill("solid", fgColor="F4F6F9" if is_past else "FFFFFF")
+        if status == "cancelled":
+            row_fill = PatternFill("solid", fgColor="FFE4E4")   # розовый — отменена
+        elif is_past:
+            row_fill = PatternFill("solid", fgColor="F4F6F9")   # серый — прошедшая
+        else:
+            row_fill = PatternFill("solid", fgColor="FFFFFF")
         for col, val in enumerate(_booking_row(b, seq), 1):
             cell = ws.cell(row=row_i, column=col, value=val)
             cell.fill=row_fill; cell.border=border
@@ -1320,8 +1343,8 @@ def _write_totals(ws, bookings, total_row):
     bold   = Font(bold=True)
     fill   = PatternFill("solid", fgColor="EEF2FF")
     vals   = {1:"ИТОГО", 6:sum(b["nights"] for b in bookings),
-              9:round(sum(b["total"] for b in bookings)),
-              10:round(sum(b["total_som"] or 0 for b in bookings))}
+              9:round(sum(_effective_total(b) for b in bookings)),
+              11:round(sum(_effective_som(b) for b in bookings))}
     for col in range(1, len(BOOK_HEADERS)+1):
         cell = ws.cell(row=total_row, column=col, value=vals.get(col))
         cell.font=bold; cell.fill=fill; cell.border=border
@@ -1355,7 +1378,7 @@ def export_excel():
     last = _write_rows(ws, all_bookings, start=2)
     if all_bookings: _write_totals(ws, all_bookings, last + 1)
     ws.freeze_panes = "A2"
-    ws.auto_filter.ref = f"A1:L{max(last, 2)}"
+    ws.auto_filter.ref = f"A1:N{max(last, 2)}"
 
     # Дополнительные листы по типам объектов компании
     _BOOKING_TYPE_SHEETS = [
@@ -1374,7 +1397,7 @@ def export_excel():
         last2 = _write_rows(ws2, type_bookings, start=2)
         if type_bookings: _write_totals(ws2, type_bookings, last2 + 1)
         ws2.freeze_panes = "A2"
-        ws2.auto_filter.ref = f"A1:L{max(last2, 2)}"
+        ws2.auto_filter.ref = f"A1:N{max(last2, 2)}"
 
     buf = io.BytesIO(); wb.save(buf); buf.seek(0)
     return send_file(buf,
@@ -1394,7 +1417,7 @@ def export_excel_cottage(cottage_id):
     cur.close(); conn.close()
 
     wb=Workbook(); ws=wb.active; ws.title=cottage["name"][:31]
-    ws.merge_cells("A1:L1"); tc=ws["A1"]
+    ws.merge_cells("A1:N1"); tc=ws["A1"]
     tc.value=f"{cottage['name']}  |  до {cottage['capacity']} чел.  |  ${int(cottage['price_per_day'])}/сутки"
     tc.font=Font(bold=True,size=12); tc.fill=PatternFill("solid",fgColor="EEF2FF")
     tc.alignment=Alignment(horizontal="left",vertical="center"); ws.row_dimensions[1].height=26
@@ -1543,11 +1566,11 @@ def export_excel_by_owner(owner_type):
     last = _write_rows(ws, all_bookings, start=2)
     if all_bookings: _write_totals(ws, all_bookings, last + 1)
     ws.freeze_panes = "A2"
-    ws.auto_filter.ref = f"A1:L{last}"
+    ws.auto_filter.ref = f"A1:N{last}"
 
     for c in cottages:
         ws2 = wb.create_sheet(c["name"][:28])
-        ws2.merge_cells("A1:L1"); tc = ws2["A1"]
+        ws2.merge_cells("A1:N1"); tc = ws2["A1"]
         tc.value = f"{c['name']}  |  до {c['capacity']} чел.  |  ${int(c['price_per_day'] or 0)}/сутки"
         tc.font  = Font(bold=True, size=12, color="2C3E50")
         tc.fill  = PatternFill("solid", fgColor="EEF2FF")

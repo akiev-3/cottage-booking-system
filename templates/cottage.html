@@ -46,7 +46,7 @@
 <main>
   <div class="cottage-info-bar">
     <span>👥 До {{ cottage.capacity }} чел.</span>
-    <span>💰 {{ "%.0f"|format(cottage.price_per_day) }} сом/сутки</span>
+    <span>💰 {{ "%.0f"|format(cottage.price_per_day) }} сом/сутки{% if rate and cottage.price_per_day %} · ≈ ${{ "%.0f"|format(cottage.price_per_day / rate) }}{% endif %}</span>
     {% if cottage.description %}<span>📝 {{ cottage.description }}</span>{% endif %}
   </div>
 

@@ -102,7 +102,7 @@
             {% elif detail == 'type' %}<td><span class="owner-badge {{ pinfo.badge }}">{{ pinfo.label }}</span></td>{% endif %}
             <td>{{ c.capacity }} чел.</td>
             <td>{{ c.rooms or '—' }}</td>
-            <td>{{ "%.0f"|format(c.price_per_day or 0) }} сом</td>
+            <td>{{ "%.0f"|format(c.price_per_day or 0) }} сом{% if rate and c.price_per_day %}<br><span class="muted-sm">≈ ${{ "%.0f"|format((c.price_per_day or 0) / rate) }}/сутки</span>{% endif %}</td>
             <td><span class="count-badge">{{ c.bookings_count }}</span></td>
             <td>{{ act(c) }}</td>
           </tr>

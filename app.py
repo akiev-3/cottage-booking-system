@@ -580,21 +580,34 @@ def _do_seed(cur, conn, timedelta, random):
             cursor_date = datetime.strptime(cursor_date, "%Y-%m-%d").date()
         cursor_date = max(cursor_date, date.today()) + timedelta(days=2)
 
-        price = obj.get("price_per_day") or 100
+        # Цена объекта теперь в сомах (после перехода на сомы)
+        price = obj.get("price_per_day") or 30000
+        shows_extra = obj["property_type"] in ('Коттедж', 'Номер отеля', 'Квартира')
         for i in range(5):
             nights = nights_variants[i % len(nights_variants)]
             ci = cursor_date
             co = ci + timedelta(days=nights)
-            total = round(nights * price)
+            # Все суммы — в сомах
+            extra_per_night = random.choice([0, 0, 0, 2000, 3000]) if shows_extra else 0
+            discount        = random.choice([0, 0, 0, 2000, 5000])
+            total_before    = round(nights * price + extra_per_night * nights)
+            total           = max(0, total_before - discount)
+            # Статус и аванс — демонстрируем новые поля
+            if i == 0:
+                status, deposit_paid = 'paid',      total
+            elif i == 4:
+                status, deposit_paid = 'cancelled', round(total * 0.2)
+            else:
+                status, deposit_paid = 'active',    random.choice([0, round(total * 0.3), round(total * 0.5)])
             cur.execute("""
                 INSERT INTO bookings (cottage_id, cottage_name, guest_name, guests,
                     check_in, check_out, nights, discount, total_before_discount,
-                    total, rate, total_som, notes)
-                VALUES (%s,%s,%s,%s, %s,%s,%s, %s,%s,%s,%s,%s,%s)
+                    total, rate, total_som, notes, deposit_paid, extra_per_night, status)
+                VALUES (%s,%s,%s,%s, %s,%s,%s, %s,%s,%s,%s,%s,%s, %s,%s,%s)
             """, (obj["id"], obj["name"], random.choice(guests_names),
                   max(1, (obj.get("capacity") or 2)), ci, co, nights,
-                  0, total, total, rate, round(total*rate),
-                  f"Демо-бронь #{i+1}"))
+                  discount, total_before, total, rate, total,
+                  f"Демо-бронь #{i+1}", deposit_paid, extra_per_night, status))
             bookings_added += 1
             cursor_date = co + timedelta(days=random.randint(1, 3))  # зазор между бронями
 

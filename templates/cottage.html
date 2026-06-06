@@ -94,11 +94,20 @@
             <td class="col-md">{{ b.guests }}</td>
             <td class="col-lg">{% if b.extra_per_night %}<span class="extra-badge">+${{ "%.0f"|format(b.extra_per_night * b.nights) }}</span>{% else %}—{% endif %}</td>
             <td>
-              ${{ "%.0f"|format(b.total) }}
-              {% if b.discount %}<span class="was-price">${{ "%.0f"|format(b.total_before_discount) }}</span>{% endif %}
+              {% if b.status == 'cancelled' %}
+                {% if b.deposit_paid %}<span class="deposit-badge">${{ "%.0f"|format(b.deposit_paid) }}</span>{% endif %}
+                <span class="was-price">${{ "%.0f"|format(b.total) }}</span>
+              {% else %}
+                ${{ "%.0f"|format(b.total) }}
+                {% if b.discount %}<span class="was-price">${{ "%.0f"|format(b.total_before_discount) }}</span>{% endif %}
+              {% endif %}
             </td>
             <td class="col-md">{% if b.deposit_paid %}<span class="deposit-badge">${{ "%.0f"|format(b.deposit_paid) }}</span>{% else %}—{% endif %}</td>
-            <td class="col-md">{% if b.deposit_paid %}<span class="{% if b.balance <= 0 %}paid-badge{% else %}balance-badge{% endif %}">{% if b.balance <= 0 %}✓ Оплачено{% else %}${{ "%.0f"|format(b.balance) }}{% endif %}</span>{% else %}—{% endif %}</td>
+            <td class="col-md">
+              {% if b.status == 'cancelled' %}—
+              {% elif b.deposit_paid %}<span class="{% if b.balance <= 0 %}paid-badge{% else %}balance-badge{% endif %}">{% if b.balance <= 0 %}✓ Оплачено{% else %}${{ "%.0f"|format(b.balance) }}{% endif %}</span>
+              {% else %}—{% endif %}
+            </td>
             <td class="col-lg">{% if b.discount %}<span class="discount-badge">-${{ b.discount }}</span>{% else %}—{% endif %}</td>
             <td class="col-lg">{{ b.rate }}</td>
             <td class="col-md">{{ "%.0f"|format(b.total_som) }} сом</td>

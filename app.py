@@ -269,10 +269,14 @@ def serialize_booking(row) -> dict:
     for field in ("check_in", "check_out"):
         if isinstance(b.get(field), date):
             b[field] = b[field].isoformat()
-    b["deposit_paid"]   = float(b.get("deposit_paid") or 0)
+    b["deposit_paid"]    = float(b.get("deposit_paid") or 0)
     b["extra_per_night"] = float(b.get("extra_per_night") or 0)
-    b["balance"] = round(max(0.0, float(b.get("total") or 0) - b["deposit_paid"]), 2)
-    b["status"] = b.get("status") or "active"
+    b["status"]          = b.get("status") or "active"
+    # При отмене брони остаток = 0 (аванс не возвращается, но больше ничего не взимается)
+    if b["status"] == "cancelled":
+        b["balance"] = 0.0
+    else:
+        b["balance"] = round(max(0.0, float(b.get("total") or 0) - b["deposit_paid"]), 2)
     return b
 
 

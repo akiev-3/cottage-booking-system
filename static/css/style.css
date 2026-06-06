@@ -746,10 +746,38 @@ textarea { resize: vertical; }
   .reorder-hint { width: 100%; text-align: center; }
   .reorder-bar .btn { flex: 1; justify-content: center; }
 
-  /* Таблица броней — горизонтальный скролл */
+  /* Таблица броней — показываем ВСЕ колонки, но компактно (как на ПК) */
   .bookings-table-wrap { border-radius: 8px; }
+  .bookings-table .col-md,
+  .bookings-table .col-lg,
+  .bookings-table .col-xl,
+  .bookings-table .col-id { display: table-cell; }
+  .bookings-table { font-size: 0.66rem; }
   .bookings-table th,
-  .bookings-table td   { padding: 10px 12px; font-size: 0.82rem; white-space: nowrap; }
+  .bookings-table td   { padding: 5px 6px; font-size: 0.66rem; white-space: nowrap; }
+  .bookings-table th   { font-size: 0.6rem; letter-spacing: 0; }
+  .bookings-table .notes-cell { max-width: 90px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  /* мелкие бейджи и кнопки внутри таблицы */
+  .bookings-table .deposit-badge, .bookings-table .balance-badge,
+  .bookings-table .paid-badge, .bookings-table .extra-badge,
+  .bookings-table .discount-badge, .bookings-table .was-price,
+  .bookings-table .status-active, .bookings-table .status-cancelled,
+  .bookings-table .status-paid { font-size: 0.58rem; padding: 1px 4px; }
+  .bookings-table .row-actions { gap: 3px; }
+  .bookings-table .row-actions .btn-sm { padding: 4px 6px; font-size: 0.7rem; }
+  .bookings-table .cb-col { width: 26px; padding: 4px 4px !important; }
+
+  /* Список объектов — ужимаем под ширину экрана */
+  .objects-list { min-width: 0; font-size: 0.7rem; }
+  .objects-list th,
+  .objects-list td { padding: 6px 7px; }
+  .objects-list th { font-size: 0.6rem; letter-spacing: 0; }
+  .objects-list .details-cell { min-width: 0; max-width: 130px; font-size: 0.66rem; }
+  .objects-list .owner-badge, .objects-list .count-badge { font-size: 0.58rem; padding: 2px 5px; }
+  .objects-list .num-col { width: 26px; }
+  .objects-list .muted-sm { font-size: 0.62rem; }
+  .objects-list .row-actions { gap: 3px; }
+  .objects-list .row-actions .btn-sm { padding: 4px 6px; font-size: 0.72rem; }
 
   /* Модальное окно — выезжает снизу */
   .modal-overlay {
@@ -824,8 +852,15 @@ textarea { resize: vertical; }
 
   .filter-btn { font-size: 0.73rem; padding: 5px 9px; }
 
+  .bookings-table, .bookings-table th, .bookings-table td { font-size: 0.6rem; }
   .bookings-table th,
-  .bookings-table td { padding: 8px 10px; font-size: 0.78rem; }
+  .bookings-table td { padding: 4px 5px; }
+  .bookings-table th { font-size: 0.55rem; }
+
+  .objects-list, .objects-list th, .objects-list td { font-size: 0.66rem; }
+  .objects-list th,
+  .objects-list td { padding: 5px 6px; }
+  .objects-list .details-cell { max-width: 110px; font-size: 0.62rem; }
 
   .modal        { max-height: 95vh; }
   form          { padding: 12px 16px; }

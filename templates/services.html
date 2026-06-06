@@ -72,12 +72,25 @@
     .catalog-table td { padding:8px 12px; font-size:0.83rem; }
     .catalog-actions { gap:6px; }
     .catalog-actions .btn { font-size:0.8rem; padding:7px 12px; }
+    /* Таблица заказов — компактные строки, видно больше колонок */
+    .orders-table { font-size:0.66rem; }
     .orders-table th,
-    .orders-table td { padding:8px 12px; font-size:0.83rem; }
+    .orders-table td { padding:5px 6px; font-size:0.66rem; white-space:nowrap; }
+    .orders-table th { font-size:0.6rem; letter-spacing:0; }
+    .orders-table td.notes-col { min-width:0; max-width:90px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-size:0.62rem; }
+    .orders-table .category-badge,
+    .orders-table .plate-badge { font-size:0.56rem; padding:1px 5px; }
+    .orders-table .cb-col { width:26px; padding:4px 4px !important; }
+    .orders-table .row-actions { gap:3px; }
+    .orders-table .row-actions .btn-sm,
+    .orders-table .btn-sm { padding:4px 6px; font-size:0.7rem; }
   }
   @media (max-width: 390px) {
     .tab-btn { padding:7px 8px; font-size:0.75rem; }
     .owner-tab { font-size:0.73rem; padding:4px 9px; }
+    .orders-table, .orders-table th, .orders-table td { font-size:0.6rem; }
+    .orders-table th, .orders-table td { padding:4px 5px; }
+    .orders-table th { font-size:0.55rem; }
   }
 </style>
 </head>

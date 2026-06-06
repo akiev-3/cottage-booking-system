@@ -135,6 +135,9 @@ function editCottage(id, name, capacity, price, desc, ownerType, ownerName, cont
 async function submitCottage(e) {
   e.preventDefault();
   const id = document.getElementById('cottage-id').value;
+  if (!document.getElementById('cottage-name').value.trim()) {
+    showToast('Введите название объекта', 'error'); return;
+  }
   const ownerType    = document.querySelector('input[name="owner_type"]:checked')?.value || 'Компания';
   const propertyType = document.getElementById('cottage-ptype').value || 'Коттедж';
   const isPrivate    = ownerType === 'Собственник';

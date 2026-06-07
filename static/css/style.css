@@ -133,30 +133,41 @@ header h1 { font-size: 1.4rem; font-weight: 700; }
 .filter-btn:hover  { border-color: var(--primary); color: var(--primary); }
 .filter-btn.active { background: var(--primary); color: #fff; border-color: var(--primary); }
 
-/* Excel дропдаун */
+/* Выпадающее меню «Ещё» в шапке */
 .header-right { position: relative; }
+.header-menu { position: relative; }
 .dropdown-menu {
   position: absolute;
   top: calc(100% + 6px);
-  right: 110px;
+  right: 0;
   background: var(--card);
   border: 1.5px solid var(--border);
   border-radius: 10px;
   box-shadow: 0 8px 24px rgba(0,0,0,0.12);
-  min-width: 180px;
+  min-width: 200px;
   z-index: 300;
   overflow: hidden;
 }
 .dropdown-item {
   display: block;
+  width: 100%;
+  text-align: left;
   padding: 10px 16px;
   font-size: 0.88rem;
   font-weight: 500;
   color: var(--text);
   text-decoration: none;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-family: inherit;
   transition: background 0.12s;
 }
 .dropdown-item:hover { background: var(--bg); }
+.dropdown-item--danger { color: #ef4444; }
+
+/* Компактнее кнопки в шапке (их немного, но место экономим) */
+header .btn { padding: 8px 14px; font-size: 0.85rem; }
 
 .owner-toggle { display: flex; gap: 8px; }
 .owner-option input { display: none; }

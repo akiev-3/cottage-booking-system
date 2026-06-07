@@ -720,9 +720,9 @@ def create_booking():
 
     ci = datetime.strptime(check_in,  "%Y-%m-%d").date()
     co = datetime.strptime(check_out, "%Y-%m-%d").date()
-    if co <= ci:
+    if (co - ci).days < 2:
         cur.close(); conn.close()
-        return jsonify({"error": "Дата выезда должна быть позже даты заезда"}), 400
+        return jsonify({"error": "Минимальный срок брони — 2 ночи (посуточно не сдаём)"}), 400
 
     # Проверка пересечений (отменённые брони не блокируют даты)
     cur.execute("""
@@ -793,9 +793,9 @@ def update_booking(booking_id):
 
     ci = datetime.strptime(check_in,  "%Y-%m-%d").date()
     co = datetime.strptime(check_out, "%Y-%m-%d").date()
-    if co <= ci:
+    if (co - ci).days < 2:
         cur.close(); conn.close()
-        return jsonify({"error": "Дата выезда должна быть позже даты заезда"}), 400
+        return jsonify({"error": "Минимальный срок брони — 2 ночи (посуточно не сдаём)"}), 400
 
     # Проверка пересечений — исключая саму редактируемую бронь и отменённые
     cur.execute("""

@@ -1,3 +1,22 @@
+// Счётчик броней на главной берётся с сервера при загрузке страницы.
+// Safari/браузеры при возврате «назад» отдают страницу из кэша (bfcache),
+// из-за чего счётчик оставался старым. Принудительно перезагружаем страницу,
+// если её восстановили из кэша — тогда счётчик всегда актуальный.
+window.addEventListener('pageshow', (e) => {
+  if (e.persisted) location.reload();
+});
+
+// ── Меню «Ещё» в шапке ──
+function toggleHeaderMenu(e) {
+  e.stopPropagation();   // чтобы клик не закрыл меню сразу же
+  const m = document.getElementById('header-dropdown');
+  if (m) m.style.display = (m.style.display === 'block') ? 'none' : 'block';
+}
+document.addEventListener('click', () => {
+  const m = document.getElementById('header-dropdown');
+  if (m && m.style.display === 'block') m.style.display = 'none';
+});
+
 // ── Modal helpers ──
 function openModal(id) { document.getElementById(id).classList.add('open'); }
 function closeModal(id) { document.getElementById(id).classList.remove('open'); }
@@ -341,7 +360,7 @@ function initBookingCalendars() {
   if (fpCheckin)  fpCheckin.destroy();
   if (fpCheckout) fpCheckout.destroy();
   fpCheckin  = flatpickr('#booking-checkin',  { ...common, minDate: 'today',
-    onChange: (sel) => { if (sel[0]) fpCheckout.set('minDate', sel[0]); calcBookingTotal(); } });
+    onChange: (sel) => { if (sel[0]) { const m = new Date(sel[0]); m.setDate(m.getDate() + 2); fpCheckout.set('minDate', m); } calcBookingTotal(); } });
   fpCheckout = flatpickr('#booking-checkout', { ...common });
 }
 
@@ -392,7 +411,7 @@ async function submitBooking(e) {
   const ci = document.getElementById('booking-checkin').value;
   const co = document.getElementById('booking-checkout').value;
   if (!ci || !co) { showToast('Выберите даты заезда и выезда', 'error'); return; }
-  if (new Date(co) <= new Date(ci)) { showToast('Дата выезда должна быть позже заезда', 'error'); return; }
+  if (Math.round((new Date(co) - new Date(ci)) / 86400000) < 2) { showToast('Минимальный срок брони — 2 ночи', 'error'); return; }
   if (rangeOverlaps(ci, co)) { showToast('❌ Эти даты уже заняты!', 'error'); return; }
   const body = {
     cottage_id: document.getElementById('booking-cottage-id').value,

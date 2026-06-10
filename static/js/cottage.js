@@ -28,7 +28,9 @@ function occupiedNights(ranges) {
 let excludeRange = null;   // при редактировании — диапазон самой брони (не считается занятым)
 function activeRanges() {
   if (!excludeRange) return BOOKED_RANGES;
-  return BOOKED_RANGES.filter(r => !(r.from === excludeRange.from && r.to === excludeRange.to));
+  // У объекта брони не пересекаются → дата заезда уникальна. Исключаем по ней,
+  // а не по точному диапазону (его конец «плавает» из-за позднего выезда).
+  return BOOKED_RANGES.filter(r => r.from !== excludeRange.from);
 }
 function rangeOverlaps(ci, co) {
   const a1 = new Date(ci), a2 = new Date(co);

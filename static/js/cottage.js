@@ -99,7 +99,8 @@ function editBooking(id, b) {
   // extra_per_night хранится как суммарная надбавка/сутки → показываем ставку за 1 гостя
   const _eg = Math.max(1, (b.guests || 0) - MAX_GUESTS);
   document.getElementById('booking-extra').value      = b.extra_per_night ? Math.round(b.extra_per_night / _eg) : '';
-  document.getElementById('booking-early-late').checked = (b.early_late_fee || 0) > 0;
+  document.getElementById('booking-early-checkin').checked = !!b.early_checkin;
+  document.getElementById('booking-late-checkout').checked = !!b.late_checkout;
   document.getElementById('booking-notes').value      = b.notes || '';
   applyExtraFieldVisibility();
   updateGuestLimit();
@@ -124,7 +125,9 @@ function calcTotal() {
   const extraGuests = Math.max(0, guests - cap);
   const extraNight  = extraPerGuest * extraGuests;              // сом/сутки за всех доп. гостей
   const extraTotal  = extraNight * nights;
-  const earlyLate   = document.getElementById('booking-early-late').checked ? Math.round(PRICE_PER_DAY / 2) : 0;
+  const earlyChk    = document.getElementById('booking-early-checkin').checked;
+  const lateChk     = document.getElementById('booking-late-checkout').checked;
+  const earlyLate   = Math.round(PRICE_PER_DAY / 2) * ((earlyChk ? 1 : 0) + (lateChk ? 1 : 0));
   const totalBefore = nights * PRICE_PER_DAY + extraTotal + earlyLate;  // сомы
   const totalSom    = Math.max(0, totalBefore - discount);      // сомы
   const totalUsd    = RATE ? Math.round(totalSom / RATE) : 0;   // $ по глобальному курсу
@@ -147,7 +150,10 @@ function calcTotal() {
   }
   const elLine = document.getElementById('total-earlylate-line');
   if (earlyLate > 0) {
-    elLine.textContent = `Ранний/поздний заезд-выезд: +${earlyLate.toLocaleString('ru-RU')} сом`;
+    const parts = [];
+    if (earlyChk) parts.push('ранний заезд');
+    if (lateChk)  parts.push('поздний выезд');
+    elLine.textContent = `${parts.join(' + ')}: +${earlyLate.toLocaleString('ru-RU')} сом`;
     elLine.style.display = 'block';
   } else {
     elLine.style.display = 'none';
@@ -175,7 +181,8 @@ async function submitBookingPage(e) {
     discount:        parseFloat(document.getElementById('booking-discount').value) || 0,
     deposit_paid:    parseFloat(document.getElementById('booking-deposit').value) || 0,
     extra_per_guest: parseFloat(document.getElementById('booking-extra').value) || 0,
-    early_late:      document.getElementById('booking-early-late').checked,
+    early_checkin:   document.getElementById('booking-early-checkin').checked,
+    late_checkout:   document.getElementById('booking-late-checkout').checked,
     notes:           document.getElementById('booking-notes').value.trim(),
   };
   const url    = id ? `/bookings/${id}` : '/bookings';

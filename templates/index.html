@@ -333,8 +333,12 @@
       </div>
       <div class="form-group">
         <label class="check-row">
-          <input type="checkbox" id="booking-early-late" onchange="calcBookingTotal()">
-          <span>Ранний заезд / поздний выезд <small class="hint" style="display:inline">(+½ суточной стоимости)</small></span>
+          <input type="checkbox" id="booking-early-checkin" onchange="calcBookingTotal()">
+          <span>🌅 Ранний заезд <small class="hint" style="display:inline">(+½ суток)</small></span>
+        </label>
+        <label class="check-row" style="margin-top:8px">
+          <input type="checkbox" id="booking-late-checkout" onchange="calcBookingTotal()">
+          <span>🌙 Поздний выезд <small class="hint" style="display:inline">(+½ суток)</small></span>
         </label>
       </div>
       <div class="form-group">

@@ -154,7 +154,11 @@ def init_db():
     cur.execute("ALTER TABLE bookings ADD COLUMN IF NOT EXISTS deposit_paid FLOAT DEFAULT 0")
     cur.execute("ALTER TABLE bookings ADD COLUMN IF NOT EXISTS status VARCHAR(20) DEFAULT 'active'")
     cur.execute("ALTER TABLE bookings ADD COLUMN IF NOT EXISTS extra_per_night FLOAT DEFAULT 0")
-    cur.execute("ALTER TABLE bookings ADD COLUMN IF NOT EXISTS early_late_fee  FLOAT DEFAULT 0")
+    cur.execute("ALTER TABLE bookings ADD COLUMN IF NOT EXISTS early_late_fee  FLOAT   DEFAULT 0")
+    cur.execute("ALTER TABLE bookings ADD COLUMN IF NOT EXISTS early_checkin   BOOLEAN DEFAULT FALSE")
+    cur.execute("ALTER TABLE bookings ADD COLUMN IF NOT EXISTS late_checkout   BOOLEAN DEFAULT FALSE")
+    # Старые брони с единой услугой «ранний/поздний» → помечаем как ранний заезд
+    cur.execute("UPDATE bookings SET early_checkin = TRUE WHERE early_late_fee > 0 AND early_checkin = FALSE AND late_checkout = FALSE")
     cur.execute("""
         CREATE TABLE IF NOT EXISTS settings (
             key   VARCHAR(50) PRIMARY KEY,
@@ -311,6 +315,8 @@ def serialize_booking(row) -> dict:
     b["deposit_paid"]    = float(b.get("deposit_paid") or 0)
     b["extra_per_night"] = float(b.get("extra_per_night") or 0)
     b["early_late_fee"]  = float(b.get("early_late_fee") or 0)
+    b["early_checkin"]   = bool(b.get("early_checkin"))
+    b["late_checkout"]   = bool(b.get("late_checkout"))
     b["status"]          = b.get("status") or "active"
     # При отмене брони остаток = 0 (аванс не возвращается, но больше ничего не взимается)
     if b["status"] == "cancelled":
@@ -792,8 +798,11 @@ def create_booking():
     extra_per_guest = max(0, float(body.get("extra_per_guest") or 0))      # сом за 1 доп. гостя/сутки
     extra_guests    = max(0, guests - capacity)
     extra_per_night = round(extra_per_guest * extra_guests)                # суммарная надбавка/сутки (хранится)
-    # Ранний заезд / поздний выезд = половина суточной стоимости объекта (разово)
-    early_late_fee  = round((cottage["price_per_day"] or 0) / 2) if body.get("early_late") else 0
+    # Ранний заезд и поздний выезд — две независимые услуги, каждая = ½ суток
+    early_checkin   = bool(body.get("early_checkin"))
+    late_checkout   = bool(body.get("late_checkout"))
+    _half           = round((cottage["price_per_day"] or 0) / 2)
+    early_late_fee  = _half * (int(early_checkin) + int(late_checkout))
     total_before    = nights * cottage["price_per_day"] + extra_per_night * nights + early_late_fee  # сомы
     discount        = max(0, float(body.get("discount") or 0))             # сомы
     total           = round(max(0, total_before - discount))               # сомы
@@ -805,12 +814,14 @@ def create_booking():
         INSERT INTO bookings
             (cottage_id, cottage_name, guest_name, guests,
              check_in, check_out, nights,
-             discount, total_before_discount, total, rate, total_som, notes, deposit_paid, extra_per_night, early_late_fee)
-        VALUES (%s,%s,%s,%s, %s,%s,%s, %s,%s,%s,%s,%s,%s,%s,%s,%s)
+             discount, total_before_discount, total, rate, total_som, notes, deposit_paid, extra_per_night,
+             early_late_fee, early_checkin, late_checkout)
+        VALUES (%s,%s,%s,%s, %s,%s,%s, %s,%s,%s,%s,%s,%s,%s,%s, %s,%s,%s)
         RETURNING *
     """, (cottage_id, cottage["name"], body.get("guest_name", ""), guests,
           ci, co, nights,
-          discount, total_before, total, rate, total_som, body.get("notes", ""), deposit_paid, extra_per_night, early_late_fee))
+          discount, total_before, total, rate, total_som, body.get("notes", ""), deposit_paid, extra_per_night,
+          early_late_fee, early_checkin, late_checkout))
     booking = dict(cur.fetchone())
     conn.commit(); cur.close(); conn.close()
 
@@ -876,12 +887,16 @@ def update_booking(booking_id):
     nights          = (co - ci).days
     extra_guests    = max(0, guests - capacity)
     extra_per_night = round(extra_per_guest * extra_guests)                 # суммарная надбавка/сутки (хранится)
-    # Ранний заезд / поздний выезд = половина суточной стоимости (из запроса или из брони)
-    if "early_late" in body:
-        early_late_fee = round((cottage["price_per_day"] or 0) / 2) if body.get("early_late") else 0
+    # Ранний заезд и поздний выезд — две независимые услуги, каждая = ½ суток
+    if "early_checkin" in body or "late_checkout" in body:
+        early_checkin = bool(body.get("early_checkin"))
+        late_checkout = bool(body.get("late_checkout"))
     else:
-        early_late_fee = round(float(existing.get("early_late_fee") or 0))
-    total_before    = nights * cottage["price_per_day"] + extra_per_night * nights + early_late_fee  # сомы
+        early_checkin = bool(existing.get("early_checkin"))
+        late_checkout = bool(existing.get("late_checkout"))
+    _half          = round((cottage["price_per_day"] or 0) / 2)
+    early_late_fee = _half * (int(early_checkin) + int(late_checkout))
+    total_before   = nights * cottage["price_per_day"] + extra_per_night * nights + early_late_fee  # сомы
     discount        = max(0, float(body.get("discount") if body.get("discount") is not None else existing["discount"] or 0))  # сомы
     total           = round(max(0, total_before - discount))               # сомы
     rate            = float(existing["rate"] or get_rate(cur))   # курс для пересчёта в $
@@ -892,12 +907,14 @@ def update_booking(booking_id):
         UPDATE bookings SET cottage_id=%s, cottage_name=%s, guest_name=%s, guests=%s,
                             check_in=%s, check_out=%s, nights=%s, discount=%s,
                             total_before_discount=%s, total=%s, rate=%s, total_som=%s,
-                            notes=%s, deposit_paid=%s, extra_per_night=%s, early_late_fee=%s
+                            notes=%s, deposit_paid=%s, extra_per_night=%s,
+                            early_late_fee=%s, early_checkin=%s, late_checkout=%s
         WHERE id=%s RETURNING *
     """, (cottage_id, cottage["name"],
           body.get("guest_name", existing["guest_name"]), guests,
           ci, co, nights, discount, total_before, total, rate, total_som,
-          body.get("notes", existing["notes"]), deposit_paid, extra_per_night, early_late_fee, booking_id))
+          body.get("notes", existing["notes"]), deposit_paid, extra_per_night,
+          early_late_fee, early_checkin, late_checkout, booking_id))
     booking = dict(cur.fetchone())
     conn.commit(); cur.close(); conn.close()
     booking["check_in"]  = str(booking["check_in"])

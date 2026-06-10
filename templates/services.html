@@ -102,6 +102,7 @@
     <h1>🛎️ Услуги</h1>
   </div>
   <div class="header-right">
+    <a href="/map" class="btn btn-outline">🗺️ Карта</a>
     {% if can('excel') %}<a href="/export/excel/services-all" class="btn btn-excel">⬇️ Excel</a>{% endif %}
     {% if can('services_edit') %}
     <button class="btn btn-success" onclick="openNewOrder()">+ Новый заказ</button>

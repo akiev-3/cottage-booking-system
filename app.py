@@ -389,6 +389,13 @@ def index():
     return render_template("index.html", cottages=cottages, rate=rate)
 
 
+@app.route("/map")
+@login_required
+def map_page():
+    """Опорный план комплекса — статичная карта с расположением объектов."""
+    return render_template("map.html")
+
+
 # ── Settings ──────────────────────────────────────────────
 
 @app.route("/settings", methods=["GET"])

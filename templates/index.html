@@ -311,7 +311,7 @@
       <div id="booking-busy-hint" class="busy-hint" style="display:none"></div>
       <div class="form-group">
         <label>Количество гостей *</label>
-        <input type="number" id="booking-guests" required min="1" placeholder="2" onchange="calcBookingTotal()">
+        <input type="number" id="booking-guests" required min="1" placeholder="2" oninput="calcBookingTotal(); updateGuestLimit()">
         <small id="booking-capacity-hint" class="hint"></small>
       </div>
       <div class="form-row">
@@ -327,9 +327,9 @@
         </div>
       </div>
       <div id="booking-extra-group" class="form-group" style="display:none">
-        <label>Доп. за гостей (сом/ночь)</label>
-        <input type="number" id="booking-extra" min="0" step="50" placeholder="0" oninput="calcBookingTotal(); updateGuestLimit()">
-        <small class="hint">надбавка за доп. гостей — умножается на кол-во ночей. При заполнении лимит гостей снимается</small>
+        <label>Доплата за 1 доп. гостя (сом/ночь)</label>
+        <input type="number" id="booking-extra" min="0" step="100" placeholder="2000" oninput="calcBookingTotal(); updateGuestLimit()">
+        <small class="hint">за каждого гостя сверх вместимости · ставка × доп.гости × ночи</small>
       </div>
       <div class="form-group">
         <label>Заметки</label>

@@ -762,10 +762,10 @@ def create_booking():
         cur.close(); conn.close()
         return jsonify({"error": "Коттедж не найден"}), 404
 
-    # Лимит вместимости снимается, если указана доплата за доп. заселение
-    if guests > cottage["capacity"] and float(body.get("extra_per_night") or 0) <= 0:
+    # Лимит вместимости снимается, если указана доплата за доп. гостя
+    if guests > cottage["capacity"] and float(body.get("extra_per_guest") or 0) <= 0:
         cur.close(); conn.close()
-        return jsonify({"error": f"Максимум гостей: {cottage['capacity']} (укажите доплату за доп. гостей, чтобы превысить)"}), 400
+        return jsonify({"error": f"Максимум гостей: {cottage['capacity']} (укажите доплату за доп. гостя, чтобы превысить)"}), 400
 
     ci = datetime.strptime(check_in,  "%Y-%m-%d").date()
     co = datetime.strptime(check_out, "%Y-%m-%d").date()
@@ -785,7 +785,11 @@ def create_booking():
         return jsonify({"error": f"Даты пересекаются с бронью #{conflict['id']} ({fmt_date(conflict['check_in'])} – {fmt_date(conflict['check_out'])})"}), 409
 
     nights          = (co - ci).days
-    extra_per_night = max(0, float(body.get("extra_per_night") or 0))      # сомы
+    capacity        = cottage["capacity"] or 0
+    # Доплата считается за каждого гостя СВЕРХ вместимости: rate × доп.гости × ночи
+    extra_per_guest = max(0, float(body.get("extra_per_guest") or 0))      # сом за 1 доп. гостя/сутки
+    extra_guests    = max(0, guests - capacity)
+    extra_per_night = round(extra_per_guest * extra_guests)                # суммарная надбавка/сутки (хранится)
     total_before    = nights * cottage["price_per_day"] + extra_per_night * nights  # сомы
     discount        = max(0, float(body.get("discount") or 0))             # сомы
     total           = round(max(0, total_before - discount))               # сомы
@@ -836,13 +840,17 @@ def update_booking(booking_id):
     check_out = body.get("check_out") or str(existing["check_out"])
     guests    = int(body.get("guests") or existing["guests"])
 
-    # Эффективная доплата за доп. заселение (из запроса или из существующей брони)
-    _extra_eff = body.get("extra_per_night")
-    _extra_eff = float(_extra_eff) if _extra_eff is not None else float(existing.get("extra_per_night") or 0)
-    # Лимит вместимости снимается, если указана доплата за доп. заселение
-    if guests > cottage["capacity"] and _extra_eff <= 0:
+    capacity = cottage["capacity"] or 0
+    # Доплата за 1 доп. гостя/сутки: из запроса, иначе обратный пересчёт из брони
+    if body.get("extra_per_guest") is not None:
+        extra_per_guest = max(0, float(body.get("extra_per_guest") or 0))
+    else:
+        prev_eg = max(1, (existing.get("guests") or 0) - capacity)
+        extra_per_guest = float(existing.get("extra_per_night") or 0) / prev_eg
+    # Лимит вместимости снимается, если указана доплата за доп. гостя
+    if guests > capacity and extra_per_guest <= 0:
         cur.close(); conn.close()
-        return jsonify({"error": f"Максимум гостей: {cottage['capacity']} (укажите доплату за доп. гостей, чтобы превысить)"}), 400
+        return jsonify({"error": f"Максимум гостей: {capacity} (укажите доплату за доп. гостя, чтобы превысить)"}), 400
 
     ci = datetime.strptime(check_in,  "%Y-%m-%d").date()
     co = datetime.strptime(check_out, "%Y-%m-%d").date()
@@ -862,7 +870,8 @@ def update_booking(booking_id):
         return jsonify({"error": f"Даты пересекаются с бронью #{conflict['id']} ({fmt_date(conflict['check_in'])} – {fmt_date(conflict['check_out'])})"}), 409
 
     nights          = (co - ci).days
-    extra_per_night = max(0, float(body.get("extra_per_night") if body.get("extra_per_night") is not None else existing.get("extra_per_night") or 0))  # сомы
+    extra_guests    = max(0, guests - capacity)
+    extra_per_night = round(extra_per_guest * extra_guests)                 # суммарная надбавка/сутки (хранится)
     total_before    = nights * cottage["price_per_day"] + extra_per_night * nights  # сомы
     discount        = max(0, float(body.get("discount") if body.get("discount") is not None else existing["discount"] or 0))  # сомы
     total           = round(max(0, total_before - discount))               # сомы

@@ -60,18 +60,14 @@ function applyExtraFieldVisibility() {
   if (group) group.style.display = (typeof EXTRA_FEE_TYPES !== 'undefined' && EXTRA_FEE_TYPES.includes(PROPERTY_TYPE)) ? '' : 'none';
 }
 
-// Если указана доплата за доп. заселение — снимаем лимит вместимости
+// Подсказка под полем гостей (лимит проверяется в submitBookingPage, не нативно)
 function updateGuestLimit() {
-  const guests = document.getElementById('booking-guests');
-  const hint   = document.getElementById('booking-capacity-hint');
-  const extra  = parseFloat(document.getElementById('booking-extra').value) || 0;
-  if (extra > 0) {
-    guests.removeAttribute('max');
-    if (hint) hint.textContent = 'Без ограничения — есть доплата за доп. гостей';
-  } else {
-    guests.max = MAX_GUESTS;
-    if (hint) hint.textContent = `Максимум: ${MAX_GUESTS} чел.`;
-  }
+  const hint  = document.getElementById('booking-capacity-hint');
+  if (!hint) return;
+  const extra = parseFloat(document.getElementById('booking-extra').value) || 0;
+  hint.textContent = extra > 0
+    ? 'Доплата за доп. гостей включена'
+    : `Максимум: ${MAX_GUESTS} чел. — больше можно с доплатой`;
 }
 
 // Открыть форму создания
@@ -100,7 +96,9 @@ function editBooking(id, b) {
   document.getElementById('booking-guests').value     = b.guests || '';
   document.getElementById('booking-discount').value   = b.discount || '';
   document.getElementById('booking-deposit').value    = b.deposit_paid || '';
-  document.getElementById('booking-extra').value      = b.extra_per_night || '';
+  // extra_per_night хранится как суммарная надбавка/сутки → показываем ставку за 1 гостя
+  const _eg = Math.max(1, (b.guests || 0) - MAX_GUESTS);
+  document.getElementById('booking-extra').value      = b.extra_per_night ? Math.round(b.extra_per_night / _eg) : '';
   document.getElementById('booking-notes').value      = b.notes || '';
   applyExtraFieldVisibility();
   updateGuestLimit();
@@ -112,18 +110,22 @@ function editBooking(id, b) {
 }
 
 function calcTotal() {
-  const ci        = document.getElementById('booking-checkin').value;
-  const co        = document.getElementById('booking-checkout').value;
-  const discount  = parseFloat(document.getElementById('booking-discount').value) || 0;   // сомы
-  const extraNight = parseFloat(document.getElementById('booking-extra').value) || 0;      // сомы
+  const ci            = document.getElementById('booking-checkin').value;
+  const co            = document.getElementById('booking-checkout').value;
+  const discount      = parseFloat(document.getElementById('booking-discount').value) || 0;   // сомы
+  const extraPerGuest = parseFloat(document.getElementById('booking-extra').value) || 0;       // сом за 1 доп. гостя/сутки
+  const guests        = parseInt(document.getElementById('booking-guests').value) || 0;
+  const cap           = MAX_GUESTS || 0;
   if (!ci || !co) return;
   const nights      = Math.round((new Date(co) - new Date(ci)) / 86400000);
   const block       = document.getElementById('total-block');
   if (nights <= 0)  { block.style.display = 'none'; return; }
+  const extraGuests = Math.max(0, guests - cap);
+  const extraNight  = extraPerGuest * extraGuests;              // сом/сутки за всех доп. гостей
   const extraTotal  = extraNight * nights;
-  const totalBefore = nights * PRICE_PER_DAY + extraTotal;       // сомы
-  const totalSom    = Math.max(0, totalBefore - discount);       // сомы
-  const totalUsd    = RATE ? Math.round(totalSom / RATE) : 0;    // $ по глобальному курсу
+  const totalBefore = nights * PRICE_PER_DAY + extraTotal;      // сомы
+  const totalSom    = Math.max(0, totalBefore - discount);      // сомы
+  const totalUsd    = RATE ? Math.round(totalSom / RATE) : 0;   // $ по глобальному курсу
   document.getElementById('total-usd').textContent    = `${totalSom.toLocaleString('ru-RU')} сом`;
   document.getElementById('total-tenge').textContent  = RATE ? `≈ $${totalUsd.toLocaleString('ru-RU')}` : '';
   document.getElementById('total-nights').textContent = `${nights} ночей`;
@@ -136,7 +138,7 @@ function calcTotal() {
   }
   const extraLine = document.getElementById('total-extra-line');
   if (extraTotal > 0) {
-    extraLine.textContent = `Доп. гости +${extraNight.toLocaleString('ru-RU')} сом/ночь × ${nights} = ${extraTotal.toLocaleString('ru-RU')} сом`;
+    extraLine.textContent = `Доп. гости: ${extraGuests} × ${extraPerGuest.toLocaleString('ru-RU')} сом × ${nights} ноч. = ${extraTotal.toLocaleString('ru-RU')} сом`;
     extraLine.style.display = 'block';
   } else {
     extraLine.style.display = 'none';
@@ -151,6 +153,9 @@ async function submitBookingPage(e) {
   if (!ci || !co) { showToast('Выберите даты заезда и выезда', 'error'); return; }
   if (Math.round((new Date(co) - new Date(ci)) / 86400000) < 2) { showToast('Минимальный срок брони — 2 ночи', 'error'); return; }
   if (rangeOverlaps(ci, co)) { showToast('❌ Эти даты уже заняты!', 'error'); return; }
+  const guestsN = parseInt(document.getElementById('booking-guests').value) || 0;
+  const extraN  = parseFloat(document.getElementById('booking-extra').value) || 0;
+  if (MAX_GUESTS && guestsN > MAX_GUESTS && extraN <= 0) { showToast(`Максимум гостей: ${MAX_GUESTS}. Укажите доплату за доп. гостя`, 'error'); return; }
   const id = document.getElementById('booking-id').value;
   const body = {
     cottage_id: COTTAGE_ID,
@@ -160,7 +165,7 @@ async function submitBookingPage(e) {
     guests:     document.getElementById('booking-guests').value,
     discount:        parseFloat(document.getElementById('booking-discount').value) || 0,
     deposit_paid:    parseFloat(document.getElementById('booking-deposit').value) || 0,
-    extra_per_night: parseFloat(document.getElementById('booking-extra').value) || 0,
+    extra_per_guest: parseFloat(document.getElementById('booking-extra').value) || 0,
     notes:           document.getElementById('booking-notes').value.trim(),
   };
   const url    = id ? `/bookings/${id}` : '/bookings';

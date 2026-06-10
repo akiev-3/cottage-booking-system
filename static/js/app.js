@@ -322,7 +322,7 @@ async function openBookingModal(cottageId, name, capacity, price, propertyType) 
   document.getElementById('booking-cottage-id').value          = cottageId;
   document.getElementById('booking-cottage-name').textContent  = name;
   document.getElementById('booking-max-guests').value          = capacity;
-  document.getElementById('booking-guests').max                = capacity;
+  document.getElementById('booking-guests').removeAttribute('max');   // лимит проверяем в JS, не нативно
   document.getElementById('booking-capacity-hint').textContent = `Максимум: ${capacity} чел.`;
   document.getElementById('booking-total-block').style.display = 'none';
   // Показать поле доп. гостей только для коттеджей, номеров и квартир
@@ -342,19 +342,15 @@ async function openBookingModal(cottageId, name, capacity, price, propertyType) 
   openModal('modal-booking');
 }
 
-// Если указана доплата за доп. заселение — снимаем лимит вместимости
+// Подсказка под полем гостей (лимит проверяется в submitBooking, не нативно)
 function updateGuestLimit() {
-  const guests = document.getElementById('booking-guests');
-  const hint   = document.getElementById('booking-capacity-hint');
-  const cap    = parseInt(document.getElementById('booking-max-guests').value) || 0;
-  const extra  = parseFloat(document.getElementById('booking-extra').value) || 0;
-  if (extra > 0) {
-    guests.removeAttribute('max');
-    if (hint) hint.textContent = 'Без ограничения — есть доплата за доп. гостей';
-  } else {
-    if (cap) guests.max = cap;
-    if (hint) hint.textContent = cap ? `Максимум: ${cap} чел.` : '';
-  }
+  const hint = document.getElementById('booking-capacity-hint');
+  if (!hint) return;
+  const cap   = parseInt(document.getElementById('booking-max-guests').value) || 0;
+  const extra = parseFloat(document.getElementById('booking-extra').value) || 0;
+  hint.textContent = extra > 0
+    ? 'Доплата за доп. гостей включена'
+    : (cap ? `Максимум: ${cap} чел. — больше можно с доплатой` : '');
 }
 
 function showBusyHint() {
@@ -381,18 +377,22 @@ function initBookingCalendars() {
 }
 
 function calcBookingTotal() {
-  const ci         = document.getElementById('booking-checkin').value;
-  const co         = document.getElementById('booking-checkout').value;
-  const discount   = parseFloat(document.getElementById('booking-discount').value) || 0;   // сомы
-  const extraNight = parseFloat(document.getElementById('booking-extra').value) || 0;       // сомы
+  const ci            = document.getElementById('booking-checkin').value;
+  const co            = document.getElementById('booking-checkout').value;
+  const discount      = parseFloat(document.getElementById('booking-discount').value) || 0;   // сомы
+  const extraPerGuest = parseFloat(document.getElementById('booking-extra').value) || 0;       // сом за 1 доп. гостя/сутки
+  const guests        = parseInt(document.getElementById('booking-guests').value) || 0;
+  const cap           = parseInt(document.getElementById('booking-max-guests').value) || 0;
   if (!ci || !co) return;
   const nights      = Math.round((new Date(co) - new Date(ci)) / 86400000);
   const block       = document.getElementById('booking-total-block');
   if (nights <= 0)  { block.style.display = 'none'; return; }
+  const extraGuests = Math.max(0, guests - cap);
+  const extraNight  = extraPerGuest * extraGuests;              // сом/сутки за всех доп. гостей
   const extraTotal  = extraNight * nights;
-  const totalBefore = nights * bookingPrice + extraTotal;        // сомы
-  const totalSom    = Math.max(0, totalBefore - discount);       // сомы
-  const totalUsd    = RATE ? Math.round(totalSom / RATE) : 0;    // $ по глобальному курсу
+  const totalBefore = nights * bookingPrice + extraTotal;       // сомы
+  const totalSom    = Math.max(0, totalBefore - discount);      // сомы
+  const totalUsd    = RATE ? Math.round(totalSom / RATE) : 0;   // $ по глобальному курсу
   document.getElementById('booking-total-usd').textContent   = `${totalSom.toLocaleString('ru-RU')} сом`;
   document.getElementById('booking-total-tenge').textContent = RATE ? `≈ $${totalUsd.toLocaleString('ru-RU')}` : '';
   document.getElementById('booking-nights').textContent      = `${nights} ночей`;
@@ -405,7 +405,7 @@ function calcBookingTotal() {
   }
   const extraLine = document.getElementById('booking-extra-line');
   if (extraTotal > 0) {
-    extraLine.textContent = `Доп. гости +${extraNight.toLocaleString('ru-RU')} сом/ночь × ${nights} = ${extraTotal.toLocaleString('ru-RU')} сом`;
+    extraLine.textContent = `Доп. гости: ${extraGuests} × ${extraPerGuest.toLocaleString('ru-RU')} сом × ${nights} ноч. = ${extraTotal.toLocaleString('ru-RU')} сом`;
     extraLine.style.display = 'block';
   } else {
     extraLine.style.display = 'none';
@@ -429,6 +429,10 @@ async function submitBooking(e) {
   if (!ci || !co) { showToast('Выберите даты заезда и выезда', 'error'); return; }
   if (Math.round((new Date(co) - new Date(ci)) / 86400000) < 2) { showToast('Минимальный срок брони — 2 ночи', 'error'); return; }
   if (rangeOverlaps(ci, co)) { showToast('❌ Эти даты уже заняты!', 'error'); return; }
+  const capN    = parseInt(document.getElementById('booking-max-guests').value) || 0;
+  const guestsN = parseInt(document.getElementById('booking-guests').value) || 0;
+  const extraN  = parseFloat(document.getElementById('booking-extra').value) || 0;
+  if (capN && guestsN > capN && extraN <= 0) { showToast(`Максимум гостей: ${capN}. Укажите доплату за доп. гостя`, 'error'); return; }
   const body = {
     cottage_id: document.getElementById('booking-cottage-id').value,
     guest_name: document.getElementById('booking-guest-name').value.trim(),
@@ -437,7 +441,7 @@ async function submitBooking(e) {
     guests:     document.getElementById('booking-guests').value,
     discount:        parseFloat(document.getElementById('booking-discount').value) || 0,
     deposit_paid:    parseFloat(document.getElementById('booking-deposit').value) || 0,
-    extra_per_night: parseFloat(document.getElementById('booking-extra').value) || 0,
+    extra_per_guest: parseFloat(document.getElementById('booking-extra').value) || 0,
     notes:           document.getElementById('booking-notes').value.trim(),
   };
   const res  = await fetch('/bookings', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });

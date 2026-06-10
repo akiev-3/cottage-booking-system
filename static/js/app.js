@@ -441,7 +441,10 @@ async function submitBooking(e) {
   const co = document.getElementById('booking-checkout').value;
   if (!ci || !co) { showToast('Выберите даты заезда и выезда', 'error'); return; }
   if (Math.round((new Date(co) - new Date(ci)) / 86400000) < 2) { showToast('Минимальный срок брони — 2 ночи', 'error'); return; }
-  if (rangeOverlaps(ci, co)) { showToast('❌ Эти даты уже заняты!', 'error'); return; }
+  // При позднем выезде новая бронь занимает и день выезда
+  const coChk = document.getElementById('booking-late-checkout').checked
+    ? isoDate(new Date(new Date(co + 'T00:00:00').getTime() + 86400000)) : co;
+  if (rangeOverlaps(ci, coChk)) { showToast('❌ Эти даты уже заняты!', 'error'); return; }
   const capN    = parseInt(document.getElementById('booking-max-guests').value) || 0;
   const guestsN = parseInt(document.getElementById('booking-guests').value) || 0;
   const extraN  = parseFloat(document.getElementById('booking-extra').value) || 0;

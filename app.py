@@ -4,7 +4,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 import os
 import io
 import json
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 import psycopg2
@@ -780,12 +780,16 @@ def create_booking():
         cur.close(); conn.close()
         return jsonify({"error": "Минимальный срок брони — 2 ночи (посуточно не сдаём)"}), 400
 
-    # Проверка пересечений (отменённые брони не блокируют даты)
+    # Проверка пересечений (отменённые брони не блокируют даты).
+    # «Поздний выезд» занимает и день выезда: эффективный конец = выезд + 1 день
+    # (учитывается и у существующих броней, и у создаваемой).
+    co_eff = co + timedelta(days=1) if body.get("late_checkout") else co
     cur.execute("""
         SELECT id, check_in, check_out FROM bookings
-        WHERE cottage_id = %s AND check_in < %s AND check_out > %s
+        WHERE cottage_id = %s AND check_in < %s
+          AND (check_out + CASE WHEN late_checkout THEN 1 ELSE 0 END) > %s
           AND status != 'cancelled'
-    """, (cottage_id, co, ci))
+    """, (cottage_id, co_eff, ci))
     conflict = cur.fetchone()
     if conflict:
         cur.close(); conn.close()
@@ -872,12 +876,16 @@ def update_booking(booking_id):
         cur.close(); conn.close()
         return jsonify({"error": "Минимальный срок брони — 2 ночи (посуточно не сдаём)"}), 400
 
-    # Проверка пересечений — исключая саму редактируемую бронь и отменённые
+    # Проверка пересечений — исключая саму редактируемую бронь и отменённые.
+    # «Поздний выезд» занимает и день выезда (у существующих и у этой брони).
+    _new_lc = bool(body.get("late_checkout")) if "late_checkout" in body else bool(existing.get("late_checkout"))
+    co_eff  = co + timedelta(days=1) if _new_lc else co
     cur.execute("""
         SELECT id, check_in, check_out FROM bookings
-        WHERE cottage_id = %s AND id <> %s AND check_in < %s AND check_out > %s
+        WHERE cottage_id = %s AND id <> %s AND check_in < %s
+          AND (check_out + CASE WHEN late_checkout THEN 1 ELSE 0 END) > %s
           AND status != 'cancelled'
-    """, (cottage_id, booking_id, co, ci))
+    """, (cottage_id, booking_id, co_eff, ci))
     conflict = cur.fetchone()
     if conflict:
         cur.close(); conn.close()
@@ -964,8 +972,13 @@ def bulk_delete_bookings():
 def cottage_booked_ranges(cottage_id):
     """Занятые диапазоны дат объекта — для подсветки в календаре."""
     conn = get_db(); cur = conn.cursor()
-    cur.execute("SELECT check_in, check_out FROM bookings WHERE cottage_id = %s AND status != 'cancelled' ORDER BY check_in", (cottage_id,))
-    ranges = [{"from": str(r["check_in"]), "to": str(r["check_out"])} for r in cur.fetchall()]
+    cur.execute("SELECT check_in, check_out, late_checkout FROM bookings WHERE cottage_id = %s AND status != 'cancelled' ORDER BY check_in", (cottage_id,))
+    ranges = []
+    for r in cur.fetchall():
+        end = r["check_out"]
+        if r["late_checkout"]:        # поздний выезд занимает и день выезда
+            end = end + timedelta(days=1)
+        ranges.append({"from": str(r["check_in"]), "to": str(end)})
     cur.close(); conn.close()
     return jsonify(ranges)
 
@@ -984,8 +997,15 @@ def cottage_bookings_page(cottage_id):
     rate  = get_rate(cur)
     today = date.today().isoformat()
     cur.close(); conn.close()
-    # Занятые диапазоны для подсветки в календаре
-    booked_ranges = [{"from": b["check_in"], "to": b["check_out"]} for b in bookings if b.get("status") != "cancelled"]
+    # Занятые диапазоны для подсветки в календаре («поздний выезд» занимает и день выезда)
+    booked_ranges = []
+    for b in bookings:
+        if b.get("status") == "cancelled":
+            continue
+        end = b["check_out"]
+        if b.get("late_checkout"):
+            end = (datetime.strptime(end, "%Y-%m-%d").date() + timedelta(days=1)).isoformat()
+        booked_ranges.append({"from": b["check_in"], "to": end})
     # Итоговые суммы: для отменённых учитывается только аванс
     total_som = round(sum(_effective_total(b) for b in bookings))   # сомы (основная)
     total_usd = round(sum(_effective_usd(b)   for b in bookings))   # $ эквивалент

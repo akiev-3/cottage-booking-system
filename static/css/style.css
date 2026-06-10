@@ -77,6 +77,10 @@ header h1 { font-size: 1.4rem; font-weight: 700; }
 }
 
 .total-sub      { font-size: 0.85rem; color: var(--muted); margin-top: 2px; }
+
+/* Чекбокс-строка (ранний/поздний заезд-выезд и т.п.) */
+.check-row { display: flex; align-items: center; gap: 9px; cursor: pointer; font-size: 0.92rem; font-weight: 500; }
+.check-row input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--primary); cursor: pointer; flex-shrink: 0; }
 .total-discount { font-size: 0.82rem; color: var(--success-dark); margin-top: 2px; }
 .total-extra    { font-size: 0.82rem; color: #d97706; margin-top: 2px; }
 

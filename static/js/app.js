@@ -390,7 +390,8 @@ function calcBookingTotal() {
   const extraGuests = Math.max(0, guests - cap);
   const extraNight  = extraPerGuest * extraGuests;              // сом/сутки за всех доп. гостей
   const extraTotal  = extraNight * nights;
-  const totalBefore = nights * bookingPrice + extraTotal;       // сомы
+  const earlyLate   = document.getElementById('booking-early-late').checked ? Math.round(bookingPrice / 2) : 0;
+  const totalBefore = nights * bookingPrice + extraTotal + earlyLate;  // сомы
   const totalSom    = Math.max(0, totalBefore - discount);      // сомы
   const totalUsd    = RATE ? Math.round(totalSom / RATE) : 0;   // $ по глобальному курсу
   document.getElementById('booking-total-usd').textContent   = `${totalSom.toLocaleString('ru-RU')} сом`;
@@ -409,6 +410,13 @@ function calcBookingTotal() {
     extraLine.style.display = 'block';
   } else {
     extraLine.style.display = 'none';
+  }
+  const elLine = document.getElementById('booking-earlylate-line');
+  if (earlyLate > 0) {
+    elLine.textContent = `Ранний/поздний заезд-выезд: +${earlyLate.toLocaleString('ru-RU')} сом`;
+    elLine.style.display = 'block';
+  } else {
+    elLine.style.display = 'none';
   }
   block.style.display = 'flex';
 }
@@ -442,6 +450,7 @@ async function submitBooking(e) {
     discount:        parseFloat(document.getElementById('booking-discount').value) || 0,
     deposit_paid:    parseFloat(document.getElementById('booking-deposit').value) || 0,
     extra_per_guest: parseFloat(document.getElementById('booking-extra').value) || 0,
+    early_late:      document.getElementById('booking-early-late').checked,
     notes:           document.getElementById('booking-notes').value.trim(),
   };
   const res  = await fetch('/bookings', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });

@@ -72,6 +72,7 @@
             <th class="col-md">Ночей</th>
             <th class="col-md">Гостей</th>
             <th class="col-lg">Доп. гости</th>
+            <th class="col-lg">Ран./поздний</th>
             <th class="col-md">Аванс</th>
             <th class="col-md">Остаток</th>
             <th class="col-lg">Скидка</th>
@@ -93,6 +94,7 @@
             <td class="col-md">{{ b.nights }}</td>
             <td class="col-md">{{ b.guests }}</td>
             <td class="col-lg">{% if b.extra_per_night %}<span class="extra-badge">+{{ "%.0f"|format(b.extra_per_night * b.nights) }}</span>{% else %}—{% endif %}</td>
+            <td class="col-lg">{% if b.early_late_fee %}<span class="extra-badge">+{{ "%.0f"|format(b.early_late_fee) }}</span>{% else %}—{% endif %}</td>
             <td class="col-md">{% if b.deposit_paid %}<span class="deposit-badge">{{ "%.0f"|format(b.deposit_paid) }}</span>{% else %}—{% endif %}</td>
             <td class="col-md">
               {% if b.status == 'cancelled' %}—
@@ -129,7 +131,7 @@
             <td class="actions-col">
               <div class="row-actions">
                 <button class="btn btn-sm btn-outline" title="Изменить"
-                        onclick='editBooking({{ b.id }}, {{ {"guest_name": b.guest_name, "check_in": b.check_in, "check_out": b.check_out, "guests": b.guests, "discount": b.discount, "deposit_paid": b.deposit_paid, "extra_per_night": b.extra_per_night, "notes": b.notes}|tojson }})'>✏️</button>
+                        onclick='editBooking({{ b.id }}, {{ {"guest_name": b.guest_name, "check_in": b.check_in, "check_out": b.check_out, "guests": b.guests, "discount": b.discount, "deposit_paid": b.deposit_paid, "extra_per_night": b.extra_per_night, "early_late_fee": b.early_late_fee, "notes": b.notes}|tojson }})'>✏️</button>
                 {% if b.status == 'active' %}
                 <button class="btn btn-sm btn-success" title="Отметить как оплаченную" onclick="setBookingStatus({{ b.id }}, 'paid')">✓</button>
                 <button class="btn btn-sm btn-danger"  title="Отменить бронь"           onclick="setBookingStatus({{ b.id }}, 'cancelled')">✗</button>
@@ -206,6 +208,12 @@
         <small class="hint">за каждого гостя сверх вместимости · ставка × доп.гости × ночи</small>
       </div>
       <div class="form-group">
+        <label class="check-row">
+          <input type="checkbox" id="booking-early-late" onchange="calcTotal()">
+          <span>Ранний заезд / поздний выезд <small class="hint" style="display:inline">(+½ суточной стоимости)</small></span>
+        </label>
+      </div>
+      <div class="form-group">
         <label>Заметки</label>
         <textarea id="booking-notes" placeholder="Пожелания гостя..." rows="2"></textarea>
       </div>
@@ -215,6 +223,7 @@
           <div class="total-sub" id="total-tenge"></div>
           <div class="total-discount" id="total-discount-line" style="display:none"></div>
           <div class="total-extra" id="total-extra-line" style="display:none"></div>
+          <div class="total-extra" id="total-earlylate-line" style="display:none"></div>
         </div>
         <span class="nights-label" id="total-nights"></span>
       </div>

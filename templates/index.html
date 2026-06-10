@@ -332,6 +332,12 @@
         <small class="hint">за каждого гостя сверх вместимости · ставка × доп.гости × ночи</small>
       </div>
       <div class="form-group">
+        <label class="check-row">
+          <input type="checkbox" id="booking-early-late" onchange="calcBookingTotal()">
+          <span>Ранний заезд / поздний выезд <small class="hint" style="display:inline">(+½ суточной стоимости)</small></span>
+        </label>
+      </div>
+      <div class="form-group">
         <label>Заметки</label>
         <textarea id="booking-notes" placeholder="Пожелания гостя..." rows="2"></textarea>
       </div>
@@ -341,6 +347,7 @@
           <div class="total-sub" id="booking-total-tenge"></div>
           <div class="total-discount" id="booking-discount-line" style="display:none"></div>
           <div class="total-extra" id="booking-extra-line" style="display:none"></div>
+          <div class="total-extra" id="booking-earlylate-line" style="display:none"></div>
         </div>
         <span class="nights-label" id="booking-nights"></span>
       </div>

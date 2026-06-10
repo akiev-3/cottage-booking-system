@@ -1275,6 +1275,9 @@ def bulk_delete_service_orders():
     return jsonify({"ok": True, "deleted": count})
 
 
+_SVC_CAT_RU = {"cleaning": "Уборка", "parking": "Парковка",
+               "laundry": "Стирка", "specialist": "Специалист"}
+
 def _write_services_to_sheet(ws, orders):
     """Записывает данные заказов услуг в существующий лист."""
     headers    = ["№","Дата начала","Дата окончания","Категория","Услуга",
@@ -1298,7 +1301,7 @@ def _write_services_to_sheet(ws, orders):
             seq,
             fmt_date(o["service_date"]) if o.get("service_date") else "",
             fmt_date(o["end_date"])     if o.get("end_date")     else "—",
-            o.get("category",""),
+            _SVC_CAT_RU.get(o.get("category",""), o.get("category","")),
             o.get("service_name",""),
             o.get("cottage_name","") or "—",
             o.get("quantity", 1),

@@ -186,7 +186,7 @@
       <div class="form-group">
         <label>Количество гостей *</label>
         <input type="number" id="booking-guests" required min="1" max="{{ cottage.capacity }}" placeholder="2" onchange="calcTotal()">
-        <small class="hint">Максимум: {{ cottage.capacity }} чел.</small>
+        <small class="hint" id="booking-capacity-hint">Максимум: {{ cottage.capacity }} чел.</small>
       </div>
       <div class="form-row">
         <div class="form-group">
@@ -202,8 +202,8 @@
       </div>
       <div id="booking-extra-group" class="form-group" style="display:none">
         <label>Доп. за гостей (сом/ночь)</label>
-        <input type="number" id="booking-extra" min="0" step="50" placeholder="0" onchange="calcTotal()">
-        <small class="hint">надбавка за доп. гостей — умножается на кол-во ночей</small>
+        <input type="number" id="booking-extra" min="0" step="50" placeholder="0" oninput="calcTotal(); updateGuestLimit()">
+        <small class="hint">надбавка за доп. гостей — умножается на кол-во ночей. При заполнении лимит гостей снимается</small>
       </div>
       <div class="form-group">
         <label>Заметки</label>

@@ -60,6 +60,20 @@ function applyExtraFieldVisibility() {
   if (group) group.style.display = (typeof EXTRA_FEE_TYPES !== 'undefined' && EXTRA_FEE_TYPES.includes(PROPERTY_TYPE)) ? '' : 'none';
 }
 
+// Если указана доплата за доп. заселение — снимаем лимит вместимости
+function updateGuestLimit() {
+  const guests = document.getElementById('booking-guests');
+  const hint   = document.getElementById('booking-capacity-hint');
+  const extra  = parseFloat(document.getElementById('booking-extra').value) || 0;
+  if (extra > 0) {
+    guests.removeAttribute('max');
+    if (hint) hint.textContent = 'Без ограничения — есть доплата за доп. гостей';
+  } else {
+    guests.max = MAX_GUESTS;
+    if (hint) hint.textContent = `Максимум: ${MAX_GUESTS} чел.`;
+  }
+}
+
 // Открыть форму создания
 function openCreateBooking() {
   excludeRange = null;
@@ -69,6 +83,7 @@ function openCreateBooking() {
   document.getElementById('booking-submit-btn').textContent  = 'Забронировать';
   document.getElementById('total-block').style.display = 'none';
   applyExtraFieldVisibility();
+  updateGuestLimit();
   initCalendars(false);
   if (fpCheckin) fpCheckin.clear();
   if (fpCheckout) fpCheckout.clear();
@@ -88,6 +103,7 @@ function editBooking(id, b) {
   document.getElementById('booking-extra').value      = b.extra_per_night || '';
   document.getElementById('booking-notes').value      = b.notes || '';
   applyExtraFieldVisibility();
+  updateGuestLimit();
   initCalendars(true);   // при редактировании прошлые даты разрешены
   fpCheckin.setDate(b.check_in, true);
   fpCheckout.setDate(b.check_out, true);

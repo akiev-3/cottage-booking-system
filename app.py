@@ -762,9 +762,10 @@ def create_booking():
         cur.close(); conn.close()
         return jsonify({"error": "Коттедж не найден"}), 404
 
-    if guests > cottage["capacity"]:
+    # Лимит вместимости снимается, если указана доплата за доп. заселение
+    if guests > cottage["capacity"] and float(body.get("extra_per_night") or 0) <= 0:
         cur.close(); conn.close()
-        return jsonify({"error": f"Максимум гостей: {cottage['capacity']}"}), 400
+        return jsonify({"error": f"Максимум гостей: {cottage['capacity']} (укажите доплату за доп. гостей, чтобы превысить)"}), 400
 
     ci = datetime.strptime(check_in,  "%Y-%m-%d").date()
     co = datetime.strptime(check_out, "%Y-%m-%d").date()
@@ -835,9 +836,13 @@ def update_booking(booking_id):
     check_out = body.get("check_out") or str(existing["check_out"])
     guests    = int(body.get("guests") or existing["guests"])
 
-    if guests > cottage["capacity"]:
+    # Эффективная доплата за доп. заселение (из запроса или из существующей брони)
+    _extra_eff = body.get("extra_per_night")
+    _extra_eff = float(_extra_eff) if _extra_eff is not None else float(existing.get("extra_per_night") or 0)
+    # Лимит вместимости снимается, если указана доплата за доп. заселение
+    if guests > cottage["capacity"] and _extra_eff <= 0:
         cur.close(); conn.close()
-        return jsonify({"error": f"Максимум гостей: {cottage['capacity']}"}), 400
+        return jsonify({"error": f"Максимум гостей: {cottage['capacity']} (укажите доплату за доп. гостей, чтобы превысить)"}), 400
 
     ci = datetime.strptime(check_in,  "%Y-%m-%d").date()
     co = datetime.strptime(check_out, "%Y-%m-%d").date()

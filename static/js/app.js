@@ -318,16 +318,17 @@ const EXTRA_FEE_TYPES = ['Коттедж', 'Номер отеля', 'Кварт�
 
 async function openBookingModal(cottageId, name, capacity, price, propertyType) {
   bookingPrice = price;
+  document.getElementById('form-booking').reset();   // сначала очистка, потом значения
   document.getElementById('booking-cottage-id').value          = cottageId;
   document.getElementById('booking-cottage-name').textContent  = name;
   document.getElementById('booking-max-guests').value          = capacity;
   document.getElementById('booking-guests').max                = capacity;
   document.getElementById('booking-capacity-hint').textContent = `Максимум: ${capacity} чел.`;
-  document.getElementById('form-booking').reset();
   document.getElementById('booking-total-block').style.display = 'none';
   // Показать поле доп. гостей только для коттеджей, номеров и квартир
   const extraGroup = document.getElementById('booking-extra-group');
   if (extraGroup) extraGroup.style.display = EXTRA_FEE_TYPES.includes(propertyType) ? '' : 'none';
+  updateGuestLimit();
 
   // Загружаем занятые даты
   occupiedRanges = [];
@@ -339,6 +340,21 @@ async function openBookingModal(cottageId, name, capacity, price, propertyType) 
   initBookingCalendars();
   showBusyHint();
   openModal('modal-booking');
+}
+
+// Если указана доплата за доп. заселение — снимаем лимит вместимости
+function updateGuestLimit() {
+  const guests = document.getElementById('booking-guests');
+  const hint   = document.getElementById('booking-capacity-hint');
+  const cap    = parseInt(document.getElementById('booking-max-guests').value) || 0;
+  const extra  = parseFloat(document.getElementById('booking-extra').value) || 0;
+  if (extra > 0) {
+    guests.removeAttribute('max');
+    if (hint) hint.textContent = 'Без ограничения — есть доплата за доп. гостей';
+  } else {
+    if (cap) guests.max = cap;
+    if (hint) hint.textContent = cap ? `Максимум: ${cap} чел.` : '';
+  }
 }
 
 function showBusyHint() {

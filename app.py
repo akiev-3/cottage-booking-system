@@ -389,11 +389,52 @@ def index():
     return render_template("index.html", cottages=cottages, rate=rate)
 
 
+# Позиции меток объектов на карте (центр метки, % от размеров изображения).
+# Координаты извлечены из текстового слоя исходного PDF-плана.
+MAP_MARKERS = {
+    'Т-2': (33.83, 55.04), 'Т-3': (29.57, 56.60), 'Т-5': (21.08, 59.12),
+    'Б-1': (14.86, 61.51), 'Т-6': (20.00, 62.07), 'Б-13': (10.40, 62.46),
+    'Б-12': (16.60, 64.24), 'Б-2': (11.64, 65.08), 'Б-11': (18.21, 66.44),
+    'Б-3': (13.31, 67.53), 'Б-4': (14.86, 69.75), 'Б-10': (20.00, 69.02),
+    'К-6': (23.95, 67.26), 'К-7': (27.32, 66.44), 'К-8': (30.84, 65.60),
+    'К-12': (28.88, 69.02),
+}
+
+
 @app.route("/map")
 @login_required
 def map_page():
-    """Опорный план комплекса — статичная карта с расположением объектов."""
-    return render_template("map.html")
+    """Опорный план комплекса с кликабельными объектами и подсветкой занятости."""
+    conn = get_db(); cur = conn.cursor()
+    # Сопоставляем метки карты с объектами по имени (без учёта лишних пробелов)
+    cur.execute("SELECT id, name FROM cottages")
+    name_to_id = {}
+    for r in cur.fetchall():
+        key = (r["name"] or "").strip()
+        if key:
+            name_to_id.setdefault(key, r["id"])
+    # Занятые сегодня объекты (есть активная бронь, покрывающая текущую дату)
+    cur.execute("""
+        SELECT DISTINCT cottage_id FROM bookings
+        WHERE status != 'cancelled' AND check_in <= CURRENT_DATE AND check_out > CURRENT_DATE
+    """)
+    occupied = {r["cottage_id"] for r in cur.fetchall()}
+    cur.close(); conn.close()
+
+    markers = []
+    for label, (x, y) in MAP_MARKERS.items():
+        cid = name_to_id.get(label)
+        if cid is None:
+            status = "none"          # объекта нет в системе
+        elif cid in occupied:
+            status = "occupied"      # занят сегодня
+        else:
+            status = "free"          # свободен
+        markers.append({"label": label, "x": x, "y": y, "id": cid, "status": status})
+
+    free_n     = sum(1 for m in markers if m["status"] == "free")
+    occ_n      = sum(1 for m in markers if m["status"] == "occupied")
+    return render_template("map.html", markers=markers, free_n=free_n, occ_n=occ_n)
 
 
 # ── Settings ──────────────────────────────────────────────

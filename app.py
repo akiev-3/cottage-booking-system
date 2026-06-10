@@ -119,6 +119,16 @@ def init_db():
     cur.execute("UPDATE cottages SET owner_type='Компания',  property_type='Номер отеля' WHERE owner_type = 'Номера отеля'")
     cur.execute("UPDATE cottages SET owner_type='Собственник'                            WHERE owner_type = 'Собственник' AND property_type IS NULL")
     cur.execute("UPDATE cottages SET property_type='Коттедж' WHERE property_type IS NULL OR property_type = ''")
+    # Таблица настроек (курс + флаги миграций) создаётся РАНО — до первых
+    # обращений к ней ниже (иначе init_db падал бы на пустой/новой базе,
+    # например при восстановлении бэкапа на чистый сервер).
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS settings (
+            key   VARCHAR(50) PRIMARY KEY,
+            value VARCHAR(255)
+        )
+    """)
+    cur.execute("INSERT INTO settings (key, value) VALUES ('rate', '85') ON CONFLICT (key) DO NOTHING")
     # Для собственников: перенести description → contacts (если contacts пусто).
     # Выполняется однократно — флаг в settings предотвращает повторный запуск,
     # который иначе затирал бы описание при каждом рестарте.
@@ -159,17 +169,6 @@ def init_db():
     cur.execute("ALTER TABLE bookings ADD COLUMN IF NOT EXISTS late_checkout   BOOLEAN DEFAULT FALSE")
     # Старые брони с единой услугой «ранний/поздний» → помечаем как ранний заезд
     cur.execute("UPDATE bookings SET early_checkin = TRUE WHERE early_late_fee > 0 AND early_checkin = FALSE AND late_checkout = FALSE")
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS settings (
-            key   VARCHAR(50) PRIMARY KEY,
-            value VARCHAR(255)
-        )
-    """)
-    cur.execute("""
-        INSERT INTO settings (key, value)
-        VALUES ('rate', '85')
-        ON CONFLICT (key) DO NOTHING
-    """)
 
     # ── Однократная миграция валюты: $ → сомы ─────────────
     # Основная валюта теперь сом. Все денежные поля переводятся в сомы:

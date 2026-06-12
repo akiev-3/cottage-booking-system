@@ -1,3 +1,19 @@
+// ── Русская локаль календаря (зашита в код, без внешнего CDN) ──
+const FP_RU = {
+  weekdays: {
+    shorthand: ["Вс","Пн","Вт","Ср","Чт","Пт","Сб"],
+    longhand: ["Воскресенье","Понедельник","Вторник","Среда","Четверг","Пятница","Суббота"],
+  },
+  months: {
+    shorthand: ["Янв","Фев","Мар","Апр","Май","Июн","Июл","Авг","Сен","Окт","Ноя","Дек"],
+    longhand: ["Январь","Февраль","Март","Апрель","Май","Июнь","Июль","Август","Сентябрь","Октябрь","Ноябрь","Декабрь"],
+  },
+  firstDayOfWeek: 1,
+  rangeSeparator: " — ",
+  ordinal: function () { return ""; },
+};
+if (typeof flatpickr !== 'undefined') flatpickr.localize(FP_RU);
+
 function openModal(id) {
   document.getElementById(id).classList.add('open');
   if (id === 'modal-booking') showBusyHint();
@@ -47,7 +63,7 @@ function showBusyHint() {
 let fpCheckin = null, fpCheckout = null;
 function initCalendars(allowPast) {
   const disable = occupiedNights(activeRanges());
-  const common  = { dateFormat:'Y-m-d', altInput:true, altFormat:'d/m/Y', locale:'ru', disable, onChange: calcTotal };
+  const common  = { dateFormat:'Y-m-d', altInput:true, altFormat:'d/m/Y', locale:FP_RU, disable, onChange: calcTotal };
   if (fpCheckin)  fpCheckin.destroy();
   if (fpCheckout) fpCheckout.destroy();
   fpCheckin  = flatpickr('#booking-checkin',  { ...common, minDate: allowPast ? null : 'today',

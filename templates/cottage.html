@@ -77,6 +77,7 @@
             <th class="col-lg">Скидка</th>
             <th>Сумма</th>
             <th class="col-md">$</th>
+            <th class="col-lg">Оплата</th>
             <th class="col-xl">Заметки</th>
             <th>Статус</th>
             {% if can('bookings_edit') %}<th></th>{% endif %}
@@ -119,6 +120,11 @@
                 {% endif %}
               {% else %}—{% endif %}
             </td>
+            <td class="col-lg">
+              {% if b.payment_type == 'cash' %}<span class="pay-badge pay-cash">💵 Нал</span>
+              {% elif b.payment_type == 'card' %}<span class="pay-badge pay-card">💳 Безнал</span>
+              {% else %}—{% endif %}
+            </td>
             <td class="col-xl notes-cell">{{ b.notes }}</td>
             <td>
               {% if b.status == 'active' %}<span class="status-active">Активна</span>
@@ -130,7 +136,7 @@
             <td class="actions-col">
               <div class="row-actions">
                 <button class="btn btn-sm btn-outline" title="Изменить"
-                        onclick='editBooking({{ b.id }}, {{ {"guest_name": b.guest_name, "check_in": b.check_in, "check_out": b.check_out, "guests": b.guests, "discount": b.discount, "deposit_paid": b.deposit_paid, "extra_per_night": b.extra_per_night, "early_checkin": b.early_checkin, "late_checkout": b.late_checkout, "notes": b.notes}|tojson }})'>✏️</button>
+                        onclick='editBooking({{ b.id }}, {{ {"guest_name": b.guest_name, "check_in": b.check_in, "check_out": b.check_out, "guests": b.guests, "discount": b.discount, "deposit_paid": b.deposit_paid, "extra_per_night": b.extra_per_night, "early_checkin": b.early_checkin, "late_checkout": b.late_checkout, "payment_type": b.payment_type, "notes": b.notes}|tojson }})'>✏️</button>
                 {% if b.status == 'active' %}
                 <button class="btn btn-sm btn-success" title="Отметить как оплаченную" onclick="setBookingStatus({{ b.id }}, 'paid')">✓</button>
                 <button class="btn btn-sm btn-danger"  title="Отменить бронь"           onclick="setBookingStatus({{ b.id }}, 'cancelled')">✗</button>
@@ -215,6 +221,14 @@
           <input type="checkbox" id="booking-late-checkout" onchange="calcTotal()">
           <span>🌙 Поздний выезд <small class="hint" style="display:inline">(+½ суток)</small></span>
         </label>
+      </div>
+      <div class="form-group">
+        <label>Оплата</label>
+        <select id="booking-payment" class="sel">
+          <option value="">— не указано</option>
+          <option value="cash">💵 Наличный</option>
+          <option value="card">💳 Безналичный</option>
+        </select>
       </div>
       <div class="form-group">
         <label>Заметки</label>

@@ -119,6 +119,7 @@ function editBooking(id, b) {
   document.getElementById('booking-extra').value      = b.extra_per_night ? Math.round(b.extra_per_night / _eg) : '';
   document.getElementById('booking-early-checkin').checked = !!b.early_checkin;
   document.getElementById('booking-late-checkout').checked = !!b.late_checkout;
+  document.getElementById('booking-payment').value    = b.payment_type || '';
   document.getElementById('booking-notes').value      = b.notes || '';
   applyExtraFieldVisibility();
   updateGuestLimit();
@@ -204,6 +205,7 @@ async function submitBookingPage(e) {
     extra_per_guest: parseFloat(document.getElementById('booking-extra').value) || 0,
     early_checkin:   document.getElementById('booking-early-checkin').checked,
     late_checkout:   document.getElementById('booking-late-checkout').checked,
+    payment_type:    document.getElementById('booking-payment').value,
     notes:           document.getElementById('booking-notes').value.trim(),
   };
   const url    = id ? `/bookings/${id}` : '/bookings';

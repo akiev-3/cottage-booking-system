@@ -478,6 +478,7 @@ async function submitBooking(e) {
     extra_per_guest: parseFloat(document.getElementById('booking-extra').value) || 0,
     early_checkin:   document.getElementById('booking-early-checkin').checked,
     late_checkout:   document.getElementById('booking-late-checkout').checked,
+    payment_type:    document.getElementById('booking-payment').value,
     notes:           document.getElementById('booking-notes').value.trim(),
   };
   const res  = await fetch('/bookings', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });

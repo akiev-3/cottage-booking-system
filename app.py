@@ -167,6 +167,7 @@ def init_db():
     cur.execute("ALTER TABLE bookings ADD COLUMN IF NOT EXISTS early_late_fee  FLOAT   DEFAULT 0")
     cur.execute("ALTER TABLE bookings ADD COLUMN IF NOT EXISTS early_checkin   BOOLEAN DEFAULT FALSE")
     cur.execute("ALTER TABLE bookings ADD COLUMN IF NOT EXISTS late_checkout   BOOLEAN DEFAULT FALSE")
+    cur.execute("ALTER TABLE bookings ADD COLUMN IF NOT EXISTS payment_type    VARCHAR(20) DEFAULT ''")
     # Старые брони с единой услугой «ранний/поздний» → помечаем как ранний заезд
     cur.execute("UPDATE bookings SET early_checkin = TRUE WHERE early_late_fee > 0 AND early_checkin = FALSE AND late_checkout = FALSE")
 
@@ -316,6 +317,7 @@ def serialize_booking(row) -> dict:
     b["early_late_fee"]  = float(b.get("early_late_fee") or 0)
     b["early_checkin"]   = bool(b.get("early_checkin"))
     b["late_checkout"]   = bool(b.get("late_checkout"))
+    b["payment_type"]    = b.get("payment_type") or ""
     b["status"]          = b.get("status") or "active"
     # При отмене брони остаток = 0 (аванс не возвращается, но больше ничего не взимается)
     if b["status"] == "cancelled":
@@ -818,13 +820,13 @@ def create_booking():
             (cottage_id, cottage_name, guest_name, guests,
              check_in, check_out, nights,
              discount, total_before_discount, total, rate, total_som, notes, deposit_paid, extra_per_night,
-             early_late_fee, early_checkin, late_checkout)
-        VALUES (%s,%s,%s,%s, %s,%s,%s, %s,%s,%s,%s,%s,%s,%s,%s, %s,%s,%s)
+             early_late_fee, early_checkin, late_checkout, payment_type)
+        VALUES (%s,%s,%s,%s, %s,%s,%s, %s,%s,%s,%s,%s,%s,%s,%s, %s,%s,%s,%s)
         RETURNING *
     """, (cottage_id, cottage["name"], body.get("guest_name", ""), guests,
           ci, co, nights,
           discount, total_before, total, rate, total_som, body.get("notes", ""), deposit_paid, extra_per_night,
-          early_late_fee, early_checkin, late_checkout))
+          early_late_fee, early_checkin, late_checkout, (body.get("payment_type") or "")))
     booking = dict(cur.fetchone())
     conn.commit(); cur.close(); conn.close()
 
@@ -915,13 +917,15 @@ def update_booking(booking_id):
                             check_in=%s, check_out=%s, nights=%s, discount=%s,
                             total_before_discount=%s, total=%s, rate=%s, total_som=%s,
                             notes=%s, deposit_paid=%s, extra_per_night=%s,
-                            early_late_fee=%s, early_checkin=%s, late_checkout=%s
+                            early_late_fee=%s, early_checkin=%s, late_checkout=%s, payment_type=%s
         WHERE id=%s RETURNING *
     """, (cottage_id, cottage["name"],
           body.get("guest_name", existing["guest_name"]), guests,
           ci, co, nights, discount, total_before, total, rate, total_som,
           body.get("notes", existing["notes"]), deposit_paid, extra_per_night,
-          early_late_fee, early_checkin, late_checkout, booking_id))
+          early_late_fee, early_checkin, late_checkout,
+          (body.get("payment_type") if "payment_type" in body else (existing.get("payment_type") or "")),
+          booking_id))
     booking = dict(cur.fetchone())
     conn.commit(); cur.close(); conn.close()
     booking["check_in"]  = str(booking["check_in"])
@@ -1460,9 +1464,11 @@ def export_excel_services_all():
 # ── Excel helpers ─────────────────────────────────────────
 
 BOOK_HEADERS = ["№","Коттеджи / Квартиры / Номера","Гость","Заезд","Выезд",
-                "Ночей","Гостей","Скидка (сом)","Доп. гости (сом)","Ранний/поздний (сом)","Сумма (сом)","Аванс (сом)","Остаток (сом)","Сумма ($)","Статус","Заметки"]
-BOOK_WIDTHS  = [6,30,22,13,13,8,8,13,16,18,14,13,14,12,12,30]
-CENTER_COLS  = {1,6,7,8,9,10,11,12,13,14}
+                "Ночей","Гостей","Скидка (сом)","Доп. гости (сом)","Ранний/поздний (сом)","Сумма (сом)","Аванс (сом)","Остаток (сом)","Сумма ($)","Статус","Оплата","Заметки"]
+BOOK_WIDTHS  = [6,30,22,13,13,8,8,13,16,18,14,13,14,12,12,14,30]
+CENTER_COLS  = {1,6,7,8,9,10,11,12,13,14,16}
+
+_PAYMENT_LABELS = {"cash": "💵 Наличный", "card": "💳 Безналичный", "": "—"}
 
 _STATUS_LABELS = {"active":"Активна","cancelled":"Отменена","paid":"Оплачена"}
 
@@ -1500,6 +1506,7 @@ def _booking_row(b, seq_num):
         "—" if b.get("status") == "cancelled" else balance,  # Остаток (сомы)
         _effective_usd(b),                     # Сумма ($)
         _STATUS_LABELS.get(b.get("status") or "active", "Активна"),
+        _PAYMENT_LABELS.get(b.get("payment_type") or "", "—"),  # Оплата
         b.get("notes",""),
     ]
 
@@ -1577,7 +1584,7 @@ def export_excel():
     last = _write_rows(ws, all_bookings, start=2)
     if all_bookings: _write_totals(ws, all_bookings, last + 1)
     ws.freeze_panes = "A2"
-    ws.auto_filter.ref = f"A1:P{max(last, 2)}"
+    ws.auto_filter.ref = f"A1:Q{max(last, 2)}"
 
     # Дополнительные листы по типам объектов компании
     _BOOKING_TYPE_SHEETS = [
@@ -1596,7 +1603,7 @@ def export_excel():
         last2 = _write_rows(ws2, type_bookings, start=2)
         if type_bookings: _write_totals(ws2, type_bookings, last2 + 1)
         ws2.freeze_panes = "A2"
-        ws2.auto_filter.ref = f"A1:P{max(last2, 2)}"
+        ws2.auto_filter.ref = f"A1:Q{max(last2, 2)}"
 
     buf = io.BytesIO(); wb.save(buf); buf.seek(0)
     return send_file(buf,
@@ -1616,7 +1623,7 @@ def export_excel_cottage(cottage_id):
     cur.close(); conn.close()
 
     wb=Workbook(); ws=wb.active; ws.title=cottage["name"][:31]
-    ws.merge_cells("A1:P1"); tc=ws["A1"]
+    ws.merge_cells("A1:Q1"); tc=ws["A1"]
     tc.value=f"{cottage['name']}  |  до {cottage['capacity']} чел.  |  {int(cottage['price_per_day'])} сом/сутки"
     tc.font=Font(bold=True,size=12); tc.fill=PatternFill("solid",fgColor="EEF2FF")
     tc.alignment=Alignment(horizontal="left",vertical="center"); ws.row_dimensions[1].height=26
@@ -1788,11 +1795,11 @@ def export_excel_by_owner(owner_type):
     last = _write_rows(ws, all_bookings, start=2)
     if all_bookings: _write_totals(ws, all_bookings, last + 1)
     ws.freeze_panes = "A2"
-    ws.auto_filter.ref = f"A1:P{last}"
+    ws.auto_filter.ref = f"A1:Q{last}"
 
     for c in cottages:
         ws2 = wb.create_sheet(c["name"][:28])
-        ws2.merge_cells("A1:P1"); tc = ws2["A1"]
+        ws2.merge_cells("A1:Q1"); tc = ws2["A1"]
         tc.value = f"{c['name']}  |  до {c['capacity']} чел.  |  {int(c['price_per_day'] or 0)} сом/сутки"
         tc.font  = Font(bold=True, size=12, color="2C3E50")
         tc.fill  = PatternFill("solid", fgColor="EEF2FF")

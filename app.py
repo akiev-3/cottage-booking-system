@@ -1460,9 +1460,9 @@ def export_excel_services_all():
 # ── Excel helpers ─────────────────────────────────────────
 
 BOOK_HEADERS = ["№","Коттеджи / Квартиры / Номера","Гость","Заезд","Выезд",
-                "Ночей","Гостей","Скидка (сом)","Доп. гости (сом)","Ранний/поздний (сом)","Сумма (сом)","Аванс (сом)","Сумма ($)","Статус","Заметки"]
-BOOK_WIDTHS  = [6,30,22,13,13,8,8,13,16,18,14,13,12,12,30]
-CENTER_COLS  = {1,6,7,8,9,10,11,12,13}
+                "Ночей","Гостей","Скидка (сом)","Доп. гости (сом)","Ранний/поздний (сом)","Сумма (сом)","Аванс (сом)","Остаток (сом)","Сумма ($)","Статус","Заметки"]
+BOOK_WIDTHS  = [6,30,22,13,13,8,8,13,16,18,14,13,14,12,12,30]
+CENTER_COLS  = {1,6,7,8,9,10,11,12,13,14}
 
 _STATUS_LABELS = {"active":"Активна","cancelled":"Отменена","paid":"Оплачена"}
 
@@ -1486,6 +1486,8 @@ def _booking_row(b, seq_num):
     discount = round(b.get("discount") or 0)
     extra    = round((b.get("extra_per_night") or 0) * (b.get("nights") or 0))
     early    = round(b.get("early_late_fee") or 0)
+    deposit  = round(b.get("deposit_paid") or 0)
+    balance  = round(b.get("balance") or 0)    # остаток к оплате (0 для отменённых)
     return [
         seq_num, b["cottage_name"], b["guest_name"],
         fmt_date(b["check_in"]), fmt_date(b["check_out"]),
@@ -1494,7 +1496,8 @@ def _booking_row(b, seq_num):
         extra if extra else "—",
         early if early else "—",               # Ранний/поздний (сомы)
         round(_effective_total(b)),            # Сумма (сомы)
-        round(b.get("deposit_paid") or 0),     # Аванс (сомы)
+        deposit if deposit else "—",           # Аванс (сомы)
+        "—" if b.get("status") == "cancelled" else balance,  # Остаток (сомы)
         _effective_usd(b),                     # Сумма ($)
         _STATUS_LABELS.get(b.get("status") or "active", "Активна"),
         b.get("notes",""),
@@ -1539,7 +1542,8 @@ def _write_totals(ws, bookings, total_row):
     vals   = {1:"ИТОГО", 6:sum(b["nights"] for b in bookings),
               11:round(sum(_effective_total(b) for b in bookings)),
               12:round(sum((b.get("deposit_paid") or 0) for b in bookings)),
-              13:round(sum(_effective_usd(b) for b in bookings))}
+              13:round(sum((b.get("balance") or 0) for b in bookings)),
+              14:round(sum(_effective_usd(b) for b in bookings))}
     for col in range(1, len(BOOK_HEADERS)+1):
         cell = ws.cell(row=total_row, column=col, value=vals.get(col))
         cell.font=bold; cell.fill=fill; cell.border=border
@@ -1573,7 +1577,7 @@ def export_excel():
     last = _write_rows(ws, all_bookings, start=2)
     if all_bookings: _write_totals(ws, all_bookings, last + 1)
     ws.freeze_panes = "A2"
-    ws.auto_filter.ref = f"A1:O{max(last, 2)}"
+    ws.auto_filter.ref = f"A1:P{max(last, 2)}"
 
     # Дополнительные листы по типам объектов компании
     _BOOKING_TYPE_SHEETS = [
@@ -1592,7 +1596,7 @@ def export_excel():
         last2 = _write_rows(ws2, type_bookings, start=2)
         if type_bookings: _write_totals(ws2, type_bookings, last2 + 1)
         ws2.freeze_panes = "A2"
-        ws2.auto_filter.ref = f"A1:O{max(last2, 2)}"
+        ws2.auto_filter.ref = f"A1:P{max(last2, 2)}"
 
     buf = io.BytesIO(); wb.save(buf); buf.seek(0)
     return send_file(buf,
@@ -1612,7 +1616,7 @@ def export_excel_cottage(cottage_id):
     cur.close(); conn.close()
 
     wb=Workbook(); ws=wb.active; ws.title=cottage["name"][:31]
-    ws.merge_cells("A1:O1"); tc=ws["A1"]
+    ws.merge_cells("A1:P1"); tc=ws["A1"]
     tc.value=f"{cottage['name']}  |  до {cottage['capacity']} чел.  |  {int(cottage['price_per_day'])} сом/сутки"
     tc.font=Font(bold=True,size=12); tc.fill=PatternFill("solid",fgColor="EEF2FF")
     tc.alignment=Alignment(horizontal="left",vertical="center"); ws.row_dimensions[1].height=26
@@ -1784,11 +1788,11 @@ def export_excel_by_owner(owner_type):
     last = _write_rows(ws, all_bookings, start=2)
     if all_bookings: _write_totals(ws, all_bookings, last + 1)
     ws.freeze_panes = "A2"
-    ws.auto_filter.ref = f"A1:O{last}"
+    ws.auto_filter.ref = f"A1:P{last}"
 
     for c in cottages:
         ws2 = wb.create_sheet(c["name"][:28])
-        ws2.merge_cells("A1:O1"); tc = ws2["A1"]
+        ws2.merge_cells("A1:P1"); tc = ws2["A1"]
         tc.value = f"{c['name']}  |  до {c['capacity']} чел.  |  {int(c['price_per_day'] or 0)} сом/сутки"
         tc.font  = Font(bold=True, size=12, color="2C3E50")
         tc.fill  = PatternFill("solid", fgColor="EEF2FF")

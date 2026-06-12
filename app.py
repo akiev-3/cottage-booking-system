@@ -269,6 +269,7 @@ def init_db():
     cur.execute("ALTER TABLE service_orders ADD COLUMN IF NOT EXISTS end_date DATE DEFAULT NULL")
     cur.execute("ALTER TABLE service_orders ADD COLUMN IF NOT EXISTS object_type VARCHAR(50) DEFAULT ''")
     cur.execute("ALTER TABLE service_orders ADD COLUMN IF NOT EXISTS position INT DEFAULT 0")
+    cur.execute("ALTER TABLE service_orders ADD COLUMN IF NOT EXISTS payment_type VARCHAR(20) DEFAULT ''")
     cur.execute("UPDATE service_orders SET position = id WHERE position = 0 OR position IS NULL")
     # Бэкфилл object_type из связанного объекта
     cur.execute("""
@@ -1191,13 +1192,13 @@ def create_service_order():
     cur.execute("""
         INSERT INTO service_orders
             (service_id, service_name, category, cottage_id, cottage_name,
-             service_date, end_date, quantity, price, total, plate, notes, object_type, position)
-        VALUES (%s,%s,%s,%s,%s, %s,%s,%s,%s,%s,%s,%s,%s,
+             service_date, end_date, quantity, price, total, plate, notes, object_type, payment_type, position)
+        VALUES (%s,%s,%s,%s,%s, %s,%s,%s,%s,%s,%s,%s,%s,%s,
                 (SELECT COALESCE(MAX(position),0)+1 FROM service_orders)) RETURNING *
     """, (svc["id"], service_name, svc["category"],
           cottage_id, cottage_name,
           body["service_date"], end_date, qty, price, total,
-          body.get("plate",""), body.get("notes",""), object_type))
+          body.get("plate",""), body.get("notes",""), object_type, (body.get("payment_type") or "")))
     order = dict(cur.fetchone())
     conn.commit(); cur.close(); conn.close()
     for f in ("service_date", "end_date"):
@@ -1256,17 +1257,18 @@ def update_service_order(order_id):
     total        = round(qty * price)
     service_name = body.get("custom_name","").strip() or svc["name"]
 
+    payment_type = body.get("payment_type") if "payment_type" in body else (existing.get("payment_type") or "")
     cur.execute("""
         UPDATE service_orders SET
             service_id=%s, service_name=%s, category=%s,
             cottage_id=%s, cottage_name=%s,
             service_date=%s, end_date=%s, quantity=%s,
-            price=%s, total=%s, plate=%s, notes=%s, object_type=%s
+            price=%s, total=%s, plate=%s, notes=%s, object_type=%s, payment_type=%s
         WHERE id=%s RETURNING *
     """, (svc["id"], service_name, svc["category"],
           cottage_id, cottage_name,
           body["service_date"], end_date, qty, price, total,
-          body.get("plate",""), body.get("notes",""), object_type,
+          body.get("plate",""), body.get("notes",""), object_type, payment_type,
           order_id))
     order = dict(cur.fetchone())
     conn.commit(); cur.close(); conn.close()
@@ -1304,13 +1306,13 @@ _SVC_CAT_RU = {"cleaning": "Уборка", "parking": "Парковка",
 def _write_services_to_sheet(ws, orders):
     """Записывает данные заказов услуг в существующий лист."""
     headers    = ["№","Дата начала","Дата окончания","Категория","Услуга",
-                  "Коттеджи / Квартиры / Номера","Кол-во","Цена (сом)","Итого (сом)","Гос. номер","Заметки"]
-    col_widths = [6, 14, 16, 18, 34, 30, 8, 13, 14, 16, 30]
+                  "Коттеджи / Квартиры / Номера","Кол-во","Цена (сом)","Итого (сом)","Оплата","Гос. номер","Заметки"]
+    col_widths = [6, 14, 16, 18, 34, 30, 8, 13, 14, 14, 16, 30]
     hf     = Font(bold=True, color="FFFFFF")
     hfill  = _header_fill("4F6EF7")
     border = _thin_border()
     center = Alignment(horizontal="center", vertical="center")
-    CENTER = {1, 2, 3, 7, 8, 9}
+    CENTER = {1, 2, 3, 7, 8, 9, 10}
 
     for col, (h, w) in enumerate(zip(headers, col_widths), 1):
         cell = ws.cell(row=1, column=col, value=h)
@@ -1330,6 +1332,7 @@ def _write_services_to_sheet(ws, orders):
             o.get("quantity", 1),
             o.get("price", 0),
             o.get("total", 0),
+            _PAYMENT_LABELS.get(o.get("payment_type") or "", "—"),
             o.get("plate","") or "—",
             o.get("notes",""),
         ]
@@ -1353,7 +1356,7 @@ def _write_services_to_sheet(ws, orders):
         total_cell.alignment = Alignment(horizontal="center")
 
     ws.freeze_panes = "A2"
-    ws.auto_filter.ref = f"A1:K{max(len(orders),1)+1}"
+    ws.auto_filter.ref = f"A1:L{max(len(orders),1)+1}"
 
 
 def _build_services_excel(orders, sheet_title):

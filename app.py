@@ -270,6 +270,7 @@ def init_db():
     cur.execute("ALTER TABLE service_orders ADD COLUMN IF NOT EXISTS object_type VARCHAR(50) DEFAULT ''")
     cur.execute("ALTER TABLE service_orders ADD COLUMN IF NOT EXISTS position INT DEFAULT 0")
     cur.execute("ALTER TABLE service_orders ADD COLUMN IF NOT EXISTS payment_type VARCHAR(20) DEFAULT ''")
+    cur.execute("ALTER TABLE service_orders ADD COLUMN IF NOT EXISTS status VARCHAR(20) DEFAULT 'active'")
     cur.execute("UPDATE service_orders SET position = id WHERE position = 0 OR position IS NULL")
     # Бэкфилл object_type из связанного объекта
     cur.execute("""
@@ -1278,6 +1279,22 @@ def update_service_order(order_id):
     return jsonify(order)
 
 
+@app.route("/service-orders/<int:order_id>/status", methods=["PATCH"])
+@require_perm("services_edit")
+def update_service_order_status(order_id):
+    new_status = request.json.get("status")
+    if new_status not in ("active", "cancelled", "paid"):
+        return jsonify({"error": "Недопустимый статус"}), 400
+    conn = get_db(); cur = conn.cursor()
+    cur.execute("UPDATE service_orders SET status=%s WHERE id=%s RETURNING id", (new_status, order_id))
+    row = cur.fetchone()
+    if not row:
+        cur.close(); conn.close()
+        return jsonify({"error": "Заказ не найден"}), 404
+    conn.commit(); cur.close(); conn.close()
+    return jsonify({"ok": True, "status": new_status})
+
+
 @app.route("/service-orders/<int:order_id>", methods=["DELETE"])
 @require_perm("services_delete")
 def delete_service_order(order_id):
@@ -1302,17 +1319,18 @@ def bulk_delete_service_orders():
 
 _SVC_CAT_RU = {"cleaning": "Уборка", "parking": "Парковка",
                "laundry": "Стирка", "specialist": "Специалист"}
+_SVC_STATUS_RU = {"active": "Активен", "paid": "Оплачен", "cancelled": "Отменён"}
 
 def _write_services_to_sheet(ws, orders):
     """Записывает данные заказов услуг в существующий лист."""
     headers    = ["№","Дата начала","Дата окончания","Категория","Услуга",
-                  "Коттеджи / Квартиры / Номера","Кол-во","Цена (сом)","Итого (сом)","Оплата","Гос. номер","Заметки"]
-    col_widths = [6, 14, 16, 18, 34, 30, 8, 13, 14, 14, 16, 30]
+                  "Коттеджи / Квартиры / Номера","Кол-во","Цена (сом)","Итого (сом)","Оплата","Гос. номер","Статус","Заметки"]
+    col_widths = [6, 14, 16, 18, 34, 30, 8, 13, 14, 14, 16, 12, 30]
     hf     = Font(bold=True, color="FFFFFF")
     hfill  = _header_fill("4F6EF7")
     border = _thin_border()
     center = Alignment(horizontal="center", vertical="center")
-    CENTER = {1, 2, 3, 7, 8, 9, 10}
+    CENTER = {1, 2, 3, 7, 8, 9, 10, 12}
 
     for col, (h, w) in enumerate(zip(headers, col_widths), 1):
         cell = ws.cell(row=1, column=col, value=h)
@@ -1334,11 +1352,13 @@ def _write_services_to_sheet(ws, orders):
             o.get("total", 0),
             _PAYMENT_LABELS.get(o.get("payment_type") or "", "—"),
             o.get("plate","") or "—",
+            _SVC_STATUS_RU.get(o.get("status") or "active", "Активен"),
             o.get("notes",""),
         ]
+        row_fill = PatternFill("solid", fgColor="FFE4E4" if o.get("status") == "cancelled" else "FFFFFF")
         for col, val in enumerate(values, 1):
             cell = ws.cell(row=ri, column=col, value=val)
-            cell.fill = PatternFill("solid", fgColor="FFFFFF")
+            cell.fill = row_fill
             cell.border = border
             if col in CENTER:
                 cell.alignment = Alignment(horizontal="center")
@@ -1351,12 +1371,13 @@ def _write_services_to_sheet(ws, orders):
             cell = ws.cell(row=last, column=col)
             cell.font=bold; cell.fill=fill; cell.border=border
         ws.cell(row=last, column=1, value="ИТОГО").font = bold
-        total_cell = ws.cell(row=last, column=9, value=round(sum(o.get("total",0) for o in orders)))
+        # Отменённые заказы не учитываются в сумме
+        total_cell = ws.cell(row=last, column=9, value=round(sum(o.get("total",0) for o in orders if o.get("status") != "cancelled")))
         total_cell.font = bold
         total_cell.alignment = Alignment(horizontal="center")
 
     ws.freeze_panes = "A2"
-    ws.auto_filter.ref = f"A1:L{max(len(orders),1)+1}"
+    ws.auto_filter.ref = f"A1:M{max(len(orders),1)+1}"
 
 
 def _build_services_excel(orders, sheet_title):

@@ -154,12 +154,12 @@
             <th class="num-col">#</th><th>Дата начала</th><th>Дата оконч.</th>
             <th>Услуга</th><th>Категория</th><th>Тип объекта</th><th>Объект</th>
             <th>Кол-во</th><th>Цена</th><th>Итого</th><th>Оплата</th>
-            <th>Гос. номер</th><th>Заметки</th>{% if can('services_edit') or can('services_delete') %}<th></th>{% endif %}
+            <th>Гос. номер</th><th>Заметки</th><th>Статус</th>{% if can('services_edit') or can('services_delete') %}<th></th>{% endif %}
           </tr>
         </thead>
         <tbody id="orders-body"{% if can('services_edit') %} class="can-sort"{% endif %}>
           {% for o in orders %}
-          <tr id="orow-{{ o.id }}" class="order-row" data-type="{{ o.object_key }}">
+          <tr id="orow-{{ o.id }}" class="order-row{% if o.status == 'cancelled' %} order-cancelled{% endif %}" data-type="{{ o.object_key }}">
             {% if can('services_delete') %}<td class="cb-col"><input type="checkbox" class="order-cb" value="{{ o.id }}" onchange="updateOrderBulkBar()"></td>{% endif %}
             <td class="num-col">{{ loop.index }}</td>
             <td>{{ o.service_date|fmtdate }}</td>
@@ -178,10 +178,21 @@
             </td>
             <td>{% if o.plate %}<span class="plate-badge">{{ o.plate }}</span>{% else %}—{% endif %}</td>
             <td class="notes-col">{{ o.notes }}</td>
-            {% if can('services_edit') %}
             <td>
+              {% if o.status == 'cancelled' %}<span class="status-cancelled">Отменён</span>
+              {% elif o.status == 'paid' %}<span class="status-paid">Оплачен</span>
+              {% else %}<span class="status-active">Активен</span>{% endif %}
+            </td>
+            {% if can('services_edit') %}
+            <td class="actions-col">
               <div class="row-actions">
                 <button class="btn btn-sm btn-outline" title="Изменить" onclick='openEditOrder({{ o|tojson }})'>✏️</button>
+                {% if o.status != 'cancelled' %}
+                {% if o.status != 'paid' %}<button class="btn btn-sm btn-success" title="Отметить оплаченным" onclick="setOrderStatus({{ o.id }}, 'paid')">✓</button>{% endif %}
+                <button class="btn btn-sm btn-danger" title="Отменить заказ" onclick="setOrderStatus({{ o.id }}, 'cancelled')">✗</button>
+                {% else %}
+                <button class="btn btn-sm btn-outline" title="Восстановить заказ" onclick="setOrderStatus({{ o.id }}, 'active')">↩</button>
+                {% endif %}
               </div>
             </td>
             {% endif %}
@@ -616,6 +627,18 @@ async function deleteOrder(id) {
   await fetch('/service-orders/'+id,{method:'DELETE'});
   document.getElementById('orow-'+id)?.remove();
   showToast('Заказ удалён');
+}
+
+async function setOrderStatus(id, status) {
+  const labels   = {cancelled:'отменить заказ', paid:'отметить оплаченным', active:'восстановить заказ'};
+  if (!confirm(`Вы уверены — ${labels[status]}?`)) return;
+  const res = await fetch('/service-orders/'+id+'/status', {
+    method:'PATCH', headers:{'Content-Type':'application/json'}, body:JSON.stringify({status})
+  });
+  if (!res.ok) { showToast('Ошибка','error'); return; }
+  showToast({cancelled:'Заказ отменён', paid:'Отмечен оплаченным', active:'Заказ восстановлен'}[status], 'success');
+  localStorage.setItem('svcTab','orders');
+  setTimeout(()=>location.reload(), 600);
 }
 
 // ── Прайс-лист ───────────────────────────────────────────

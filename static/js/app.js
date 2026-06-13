@@ -256,21 +256,24 @@ function openAddCottage() {
   openModal('modal-add-cottage');
 }
 
-function editCottage(id, name, capacity, price, desc, ownerType, ownerName, contacts, propertyType, size, rooms, floor) {
+// Принимает объект целиком (через |tojson) — безопасно для описаний с
+// переносами строк, кавычками и апострофами, которые ломали старый вариант
+// с позиционными строковыми аргументами в onclick.
+function editCottage(c) {
   document.getElementById('cottage-modal-title').textContent = 'Редактировать';
-  document.getElementById('cottage-id').value              = id;
-  document.getElementById('cottage-name').value            = name;
-  document.getElementById('cottage-capacity').value        = capacity;
-  document.getElementById('cottage-price').value           = price;
-  document.getElementById('cottage-description').value     = desc;
-  document.getElementById('cottage-contacts').value        = contacts || '';
-  document.getElementById('cottage-owner-name').value      = ownerName || '';
-  document.getElementById('cottage-ptype').value           = propertyType || 'Коттедж';
-  document.getElementById('cottage-size').value            = size || 'Большой';
-  document.getElementById('cottage-rooms').value           = rooms || '';
-  document.getElementById('cottage-floor').value           = floor || '';
-  document.getElementById('owner-company').checked         = ownerType !== 'Собственник';
-  document.getElementById('owner-private').checked         = ownerType === 'Собственник';
+  document.getElementById('cottage-id').value              = c.id;
+  document.getElementById('cottage-name').value            = c.name || '';
+  document.getElementById('cottage-capacity').value        = c.capacity || '';
+  document.getElementById('cottage-price').value           = c.price_per_day || '';
+  document.getElementById('cottage-description').value     = c.description || '';
+  document.getElementById('cottage-contacts').value        = c.contacts || '';
+  document.getElementById('cottage-owner-name').value      = c.owner_name || '';
+  document.getElementById('cottage-ptype').value           = c.property_type || 'Коттедж';
+  document.getElementById('cottage-size').value            = c.cottage_size || 'Большой';
+  document.getElementById('cottage-rooms').value           = c.rooms || '';
+  document.getElementById('cottage-floor').value           = c.floor || '';
+  document.getElementById('owner-company').checked         = c.owner_type !== 'Собственник';
+  document.getElementById('owner-private').checked         = c.owner_type === 'Собственник';
   onOwnerToggle();
   openModal('modal-add-cottage');
 }
@@ -334,7 +337,9 @@ function occupiedNights(ranges) {
 
 const EXTRA_FEE_TYPES = ['Коттедж', 'Номер отеля', 'Квартира'];
 
-async function openBookingModal(cottageId, name, capacity, price, propertyType) {
+async function openBookingModal(c) {
+  const cottageId = c.id, name = c.name, capacity = c.capacity || 0,
+        price = c.price_per_day || 0, propertyType = c.property_type;
   bookingPrice = price;
   document.getElementById('form-booking').reset();   // сначала очистка, потом значения
   document.getElementById('booking-cottage-id').value          = cottageId;

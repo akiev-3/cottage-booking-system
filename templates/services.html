@@ -245,7 +245,7 @@
                 <td class="act-col">
                   <div class="row-actions">
                     <button class="btn btn-sm btn-outline" title="Изменить"
-                            onclick="editService({{ item.id }}, '{{ item.category|e }}', '{{ item.name|e }}', '{{ item.unit|e }}', {{ item.price }}, '{{ (item.description or '')|e }}', '{{ owner_name }}')">✏️</button>
+                            onclick='editService({{ item|tojson }}, "{{ owner_name }}")'>✏️</button>
                     {% if can('services_delete') %}
                     <button class="btn btn-sm btn-danger" title="Удалить" onclick="deleteCatalogItem({{ item.id }})">🗑️</button>
                     {% endif %}
@@ -666,14 +666,14 @@ function openAddService(ownerName) {
   openModal('modal-add-service');
 }
 
-function editService(id, category, name, unit, price, desc, ownerName) {
-  document.getElementById('new-svc-id').value    = id;
+function editService(item, ownerName) {
+  document.getElementById('new-svc-id').value    = item.id;
   document.getElementById('new-svc-owner').value = ownerName;
-  document.getElementById('new-svc-cat').value   = category;
-  document.getElementById('new-svc-name').value  = name;
-  document.getElementById('new-svc-unit').value  = unit;
-  document.getElementById('new-svc-price').value = price;
-  document.getElementById('new-svc-desc').value  = desc || '';
+  document.getElementById('new-svc-cat').value   = item.category;
+  document.getElementById('new-svc-name').value  = item.name;
+  document.getElementById('new-svc-unit').value  = item.unit;
+  document.getElementById('new-svc-price').value = item.price;
+  document.getElementById('new-svc-desc').value  = item.description || '';
   document.getElementById('add-svc-owner-label').textContent = NAME_LABELS[ownerName] || ownerName;
   document.getElementById('svc-modal-title').firstChild.textContent = 'Редактировать — ';
   document.getElementById('svc-submit-btn').textContent = 'Сохранить';

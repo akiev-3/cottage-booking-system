@@ -281,6 +281,19 @@ main { padding: 32px; max-width: 1300px; margin: 0 auto; }
   font-size: 0.85rem;
   line-height: 1.4;
 }
+/* Ячейка названия с описанием — описание переносится и не растягивает таблицу */
+.objects-list td.name-cell {
+  white-space: normal;
+  min-width: 200px;
+  max-width: 360px;
+}
+.objects-list td.name-cell .muted-sm {
+  display: block;
+  margin-top: 3px;
+  line-height: 1.35;
+  white-space: normal;
+  word-break: break-word;
+}
 .muted-sm { color: var(--muted); font-size: 0.8rem; }
 .num-col { width: 44px; text-align: center; color: var(--muted); }
 
@@ -700,6 +713,8 @@ textarea { resize: vertical; }
   .objects-list td { padding: 6px 7px; }
   .objects-list th { font-size: 0.6rem; letter-spacing: 0; }
   .objects-list .details-cell { min-width: 0; max-width: 130px; font-size: 0.66rem; }
+  .objects-list td.name-cell { min-width: 0; max-width: 150px; }
+  .objects-list td.name-cell .muted-sm { font-size: 0.62rem; }
   .objects-list .owner-badge, .objects-list .count-badge { font-size: 0.58rem; padding: 2px 5px; }
   .objects-list .num-col { width: 26px; }
   .objects-list .muted-sm { font-size: 0.62rem; }

@@ -112,7 +112,7 @@
           {% set pinfo = ptype_map.get(c.property_type, ptype_map['Коттедж']) %}
           <tr id="card-{{ c.id }}">
             <td class="num-col">{{ loop.index }}</td>
-            <td><strong>{{ c.name }}</strong>{% if c.description %}<br><span class="muted-sm">{{ c.description }}</span>{% endif %}</td>
+            <td class="name-cell"><strong>{{ c.name }}</strong>{% if c.description %}<br><span class="muted-sm">{{ c.description }}</span>{% endif %}</td>
             {% if detail == 'size' %}<td>{{ c.cottage_size or '—' }}</td>
             {% elif detail == 'floor' %}<td>{{ c.floor or '—' }}</td>
             {% elif detail == 'type' %}<td><span class="owner-badge {{ pinfo.badge }}">{{ pinfo.label }}</span></td>{% endif %}

@@ -62,13 +62,19 @@ function showBusyHint() {
 
 let fpCheckin = null, fpCheckout = null;
 function initCalendars(allowPast) {
-  const disable = occupiedNights(activeRanges());
-  const common  = { dateFormat:'Y-m-d', altInput:true, altFormat:'d/m/Y', locale:FP_RU, disable, onChange: calcTotal };
+  const disableIn  = occupiedNights(activeRanges());
+  // Для выезда не блокируем первый день соседней брони — выезд в день чужого заезда допустим
+  const disableOut = activeRanges().map(r => {
+    const from = new Date(r.from + 'T00:00:00'); from.setDate(from.getDate() + 1);
+    const to   = new Date(r.to   + 'T00:00:00'); to.setDate(to.getDate() - 1);
+    return { from: isoDate(from), to: isoDate(to) };
+  }).filter(r => r.from <= r.to);
+  const base = { dateFormat:'Y-m-d', altInput:true, altFormat:'d/m/Y', locale:FP_RU, onChange: calcTotal };
   if (fpCheckin)  fpCheckin.destroy();
   if (fpCheckout) fpCheckout.destroy();
-  fpCheckin  = flatpickr('#booking-checkin',  { ...common, minDate: allowPast ? null : 'today',
+  fpCheckin  = flatpickr('#booking-checkin',  { ...base, disable: disableIn, minDate: allowPast ? null : 'today',
     onChange:(sel)=>{ if(sel[0]){ const m=new Date(sel[0]); m.setDate(m.getDate()+2); fpCheckout.set('minDate', m); } calcTotal(); } });
-  fpCheckout = flatpickr('#booking-checkout', { ...common });
+  fpCheckout = flatpickr('#booking-checkout', { ...base, disable: disableOut });
 }
 document.addEventListener('DOMContentLoaded', () => initCalendars(false));
 
@@ -124,8 +130,13 @@ function editBooking(id, b) {
   applyExtraFieldVisibility();
   updateGuestLimit();
   initCalendars(true);   // при редактировании прошлые даты разрешены
-  fpCheckin.setDate(b.check_in, true);
-  fpCheckout.setDate(b.check_out, true);
+  fpCheckin.setDate(b.check_in, false);
+  if (b.check_in) {
+    const m = new Date(b.check_in + 'T00:00:00');
+    m.setDate(m.getDate() + 2);
+    fpCheckout.set('minDate', m);
+  }
+  fpCheckout.setDate(b.check_out, false);
   calcTotal();
   openModal('modal-booking');
 }

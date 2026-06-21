@@ -383,20 +383,24 @@ function showBusyHint() {
 }
 
 function initBookingCalendars() {
-  const disable = occupiedNights(occupiedRanges);
-  const common = {
+  const disableIn  = occupiedNights(occupiedRanges);
+  const disableOut = occupiedRanges.map(r => {
+    const from = new Date(r.from + 'T00:00:00'); from.setDate(from.getDate() + 1);
+    const to   = new Date(r.to   + 'T00:00:00'); to.setDate(to.getDate() - 1);
+    return { from: isoDate(from), to: isoDate(to) };
+  }).filter(r => r.from <= r.to);
+  const base = {
     dateFormat: 'Y-m-d',
     altInput: true,
     altFormat: 'd/m/Y',
     locale: FP_RU,
-    disable: disable,
     onChange: calcBookingTotal,
   };
   if (fpCheckin)  fpCheckin.destroy();
   if (fpCheckout) fpCheckout.destroy();
-  fpCheckin  = flatpickr('#booking-checkin',  { ...common, minDate: 'today',
+  fpCheckin  = flatpickr('#booking-checkin',  { ...base, disable: disableIn, minDate: 'today',
     onChange: (sel) => { if (sel[0]) { const m = new Date(sel[0]); m.setDate(m.getDate() + 2); fpCheckout.set('minDate', m); } calcBookingTotal(); } });
-  fpCheckout = flatpickr('#booking-checkout', { ...common });
+  fpCheckout = flatpickr('#booking-checkout', { ...base, disable: disableOut });
 }
 
 function calcBookingTotal() {

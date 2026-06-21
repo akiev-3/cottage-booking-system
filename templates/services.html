@@ -45,7 +45,7 @@
   .orders-table td { padding:11px 14px;border-bottom:1px solid var(--border);vertical-align:middle;white-space:nowrap; }
   .orders-table tr:last-child td { border-bottom:none; }
   .orders-table tr:hover td { background:#f8fafd; }
-  .orders-table td.notes-col { white-space:normal;min-width:120px;max-width:220px;font-size:0.82rem;color:var(--muted); }
+  .orders-table td.notes-col { max-width:200px;font-size:0.82rem;color:var(--muted); }
 
   .category-badge { display:inline-block;padding:2px 8px;border-radius:20px;font-size:0.75rem;font-weight:600; }
   .cat-custom     { background:#f1f5f9;color:#475569; }
@@ -77,7 +77,8 @@
     .orders-table th,
     .orders-table td { padding:5px 6px; font-size:0.66rem; white-space:nowrap; }
     .orders-table th { font-size:0.6rem; letter-spacing:0; }
-    .orders-table td.notes-col { min-width:0; max-width:90px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-size:0.62rem; }
+    .orders-table td.notes-col { max-width:90px; font-size:0.62rem; }
+    .orders-table td.notes-col .notes-inner { max-width:90px; }
     .orders-table .category-badge,
     .orders-table .plate-badge { font-size:0.56rem; padding:1px 5px; }
     .orders-table .cb-col { width:26px; padding:4px 4px !important; }
@@ -177,7 +178,7 @@
               {% else %}—{% endif %}
             </td>
             <td>{% if o.plate %}<span class="plate-badge">{{ o.plate }}</span>{% else %}—{% endif %}</td>
-            <td class="notes-col">{{ o.notes }}</td>
+            <td class="notes-col" title="{{ o.notes }}"><div class="notes-inner">{{ o.notes }}</div></td>
             <td>
               {% if o.status == 'cancelled' %}<span class="status-cancelled">Отменён</span>
               {% elif o.status == 'paid' %}<span class="status-paid">Оплачен</span>

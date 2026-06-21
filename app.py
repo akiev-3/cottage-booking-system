@@ -9,6 +9,9 @@ from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 import psycopg2
 import psycopg2.extras
+import random
+import traceback
+from collections import defaultdict
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "cottage-secret-2024-change-me")
@@ -64,10 +67,6 @@ def require_perm(perm):
             if not session.get("logged_in"):
                 return redirect(url_for("login_page"))
             if not has_perm(perm):
-                # Для API — 403 JSON, для страниц — редирект на стартовую доступную
-                if request.path.startswith(("/export", "/cottages", "/bookings", "/service", "/settings", "/seed")) \
-                   and request.method != "GET":
-                    return jsonify({"error": "Недостаточно прав"}), 403
                 if request.is_json or request.method != "GET":
                     return jsonify({"error": "Недостаточно прав"}), 403
                 return redirect(url_for("home_redirect"))
@@ -462,7 +461,7 @@ def get_settings():
 @app.route("/settings", methods=["POST"])
 @require_perm("bookings_edit")
 def update_settings():
-    body = request.json
+    body = request.get_json(silent=True) or {}
     conn = get_db(); cur = conn.cursor()
     if "rate" in body:
         cur.execute("UPDATE settings SET value = %s WHERE key = 'rate'", (str(body["rate"]),))
@@ -477,7 +476,9 @@ def update_settings():
 @app.route("/cottages", methods=["POST"])
 @require_perm("bookings_edit")
 def create_cottage():
-    body = request.json
+    body = request.get_json(silent=True)
+    if not body:
+        return jsonify({"error": "Ожидается JSON"}), 400
     conn = get_db(); cur = conn.cursor()
     owner_type    = body.get("owner_type", "Компания")
     property_type = body.get("property_type", "Коттедж")
@@ -505,7 +506,9 @@ def create_cottage():
 @app.route("/cottages/<int:cottage_id>", methods=["PUT"])
 @require_perm("bookings_edit")
 def update_cottage(cottage_id):
-    body = request.json
+    body = request.get_json(silent=True)
+    if not body:
+        return jsonify({"error": "Ожидается JSON"}), 400
     conn = get_db(); cur = conn.cursor()
     owner_type    = body.get("owner_type", "Компания")
     property_type = body.get("property_type", "Коттедж")
@@ -541,6 +544,9 @@ def delete_cottage(cottage_id):
     return jsonify({"ok": True})
 
 
+_REORDER_TABLES = frozenset({"cottages", "service_orders"})
+
+
 def _reorder(table, ids):
     """Перестановка строк, устойчивая к повторным перетаскиваниям и фильтрам.
 
@@ -553,32 +559,37 @@ def _reorder(table, ids):
     Плотная перенумерация исключает дубли/разрывы позиций, из-за которых
     при ORDER BY position,id порядок «слетал» после нескольких перестановок.
     """
+    if table not in _REORDER_TABLES:
+        raise ValueError(f"Unknown table: {table}")
     ids = [int(x) for x in ids]
     if not ids:
         return 0
     conn = get_db(); cur = conn.cursor()
-    cur.execute(f"SELECT id FROM {table} ORDER BY position, id")
-    all_ids = [r["id"] for r in cur.fetchall()]
-    id_set  = set(ids)
-    new_iter = iter(ids)
-    result = []
-    for oid in all_ids:
-        result.append(next(new_iter) if oid in id_set else oid)
-    # подстраховка: id из запроса, которых нет в таблице (рассинхрон) — в конец
-    seen = set(result)
-    for oid in ids:
-        if oid not in seen:
-            result.append(oid); seen.add(oid)
-    for pos, oid in enumerate(result, 1):
-        cur.execute(f"UPDATE {table} SET position = %s WHERE id = %s", (pos, oid))
-    conn.commit(); cur.close(); conn.close()
+    try:
+        cur.execute(f"SELECT id FROM {table} ORDER BY position, id")
+        all_ids = [r["id"] for r in cur.fetchall()]
+        id_set  = set(ids)
+        new_iter = iter(ids)
+        result = []
+        for oid in all_ids:
+            result.append(next(new_iter) if oid in id_set else oid)
+        # подстраховка: id из запроса, которых нет в таблице (рассинхрон) — в конец
+        seen = set(result)
+        for oid in ids:
+            if oid not in seen:
+                result.append(oid); seen.add(oid)
+        for pos, oid in enumerate(result, 1):
+            cur.execute(f"UPDATE {table} SET position = %s WHERE id = %s", (pos, oid))
+        conn.commit()
+    finally:
+        cur.close(); conn.close()
     return len(ids)
 
 
 @app.route("/cottages/reorder", methods=["POST"])
 @require_perm("bookings_edit")
 def reorder_cottages():
-    ids = [int(x) for x in (request.json.get("ids") or [])]
+    ids = [int(x) for x in ((request.get_json(silent=True) or {}).get("ids") or [])]
     n = _reorder("cottages", ids)
     return jsonify({"ok": True, "updated": n})
 
@@ -586,7 +597,7 @@ def reorder_cottages():
 @app.route("/service-orders/reorder", methods=["POST"])
 @require_perm("services_edit")
 def reorder_service_orders():
-    ids = [int(x) for x in (request.json.get("ids") or [])]
+    ids = [int(x) for x in ((request.get_json(silent=True) or {}).get("ids") or [])]
     n = _reorder("service_orders", ids)
     return jsonify({"ok": True, "updated": n})
 
@@ -597,9 +608,6 @@ def reorder_service_orders():
 @require_perm("bookings_edit")
 def seed_demo():
     """Генерирует тестовые брони и заказы услуг для объектов компании."""
-    from datetime import timedelta
-    import random, traceback
-
     conn = get_db(); cur = conn.cursor()
     try:
         return _do_seed(cur, conn, timedelta, random)
@@ -759,7 +767,9 @@ def get_bookings():
 @app.route("/bookings", methods=["POST"])
 @require_perm("bookings_edit")
 def create_booking():
-    body       = request.json
+    body = request.get_json(silent=True)
+    if not body:
+        return jsonify({"error": "Ожидается JSON"}), 400
     cottage_id = int(body["cottage_id"])
     check_in   = body["check_in"]
     check_out  = body["check_out"]
@@ -841,7 +851,9 @@ def create_booking():
 @app.route("/bookings/<int:booking_id>", methods=["PUT"])
 @require_perm("bookings_edit")
 def update_booking(booking_id):
-    body = request.json
+    body = request.get_json(silent=True)
+    if not body:
+        return jsonify({"error": "Ожидается JSON"}), 400
     conn = get_db(); cur = conn.cursor()
 
     cur.execute("SELECT * FROM bookings WHERE id = %s", (booking_id,))
@@ -938,7 +950,7 @@ def update_booking(booking_id):
 @app.route("/bookings/<int:booking_id>/status", methods=["PATCH"])
 @require_perm("bookings_edit")
 def update_booking_status(booking_id):
-    new_status = request.json.get("status")
+    new_status = (request.get_json(silent=True) or {}).get("status")
     if new_status not in ("active", "cancelled", "paid"):
         return jsonify({"error": "Недопустимый статус"}), 400
     conn = get_db(); cur = conn.cursor()
@@ -963,7 +975,7 @@ def delete_booking(booking_id):
 @app.route("/bookings/bulk-delete", methods=["POST"])
 @require_perm("bookings_edit")
 def bulk_delete_bookings():
-    ids = request.json.get("ids", [])
+    ids = (request.get_json(silent=True) or {}).get("ids", [])
     if not ids:
         return jsonify({"ok": True, "deleted": 0})
     conn = get_db(); cur = conn.cursor()
@@ -1049,7 +1061,6 @@ def services_page():
     catalog = [dict(r) for r in cur.fetchall()]
 
     # Группируем каталог по типу объекта → категории
-    from collections import defaultdict
     grouped = defaultdict(lambda: defaultdict(list))
     for item in catalog:
         grouped[item["owner_type"]][item["category"]].append(item)
@@ -1089,7 +1100,9 @@ def services_page():
 @app.route("/service-catalog/<int:item_id>", methods=["PUT"])
 @require_perm("services_edit")
 def update_catalog_item(item_id):
-    body = request.json
+    body = request.get_json(silent=True)
+    if not body:
+        return jsonify({"error": "Ожидается JSON"}), 400
     conn = get_db(); cur = conn.cursor()
     cur.execute("""
         UPDATE service_catalog SET category=%s, name=%s, price=%s, unit=%s,
@@ -1107,7 +1120,9 @@ def update_catalog_item(item_id):
 @app.route("/service-catalog", methods=["POST"])
 @require_perm("services_edit")
 def add_catalog_item():
-    body = request.json
+    body = request.get_json(silent=True)
+    if not body:
+        return jsonify({"error": "Ожидается JSON"}), 400
     conn = get_db(); cur = conn.cursor()
     cur.execute("""
         INSERT INTO service_catalog (category, name, unit, price, has_plate, owner_type, description)
@@ -1132,7 +1147,7 @@ def delete_catalog_item(item_id):
 @app.route("/service-catalog/bulk-delete", methods=["POST"])
 @require_perm("services_delete")
 def bulk_delete_catalog():
-    ids = request.json.get("ids", [])
+    ids = (request.get_json(silent=True) or {}).get("ids", [])
     if not ids:
         return jsonify({"ok": True, "deleted": 0})
     conn = get_db(); cur = conn.cursor()
@@ -1145,7 +1160,9 @@ def bulk_delete_catalog():
 @app.route("/service-orders", methods=["POST"])
 @require_perm("services_edit")
 def create_service_order():
-    body = request.json
+    body = request.get_json(silent=True)
+    if not body:
+        return jsonify({"error": "Ожидается JSON"}), 400
     conn = get_db(); cur = conn.cursor()
 
     svc = None
@@ -1178,7 +1195,6 @@ def create_service_order():
 
     # Для парковки считаем дни между датами автоматически
     if end_date and svc["has_plate"]:
-        from datetime import date as _date
         d1 = datetime.strptime(body["service_date"], "%Y-%m-%d").date()
         d2 = datetime.strptime(end_date, "%Y-%m-%d").date()
         qty = max(1, (d2 - d1).days)
@@ -1211,7 +1227,9 @@ def create_service_order():
 @app.route("/service-orders/<int:order_id>", methods=["PUT"])
 @require_perm("services_edit")
 def update_service_order(order_id):
-    body = request.json
+    body = request.get_json(silent=True)
+    if not body:
+        return jsonify({"error": "Ожидается JSON"}), 400
     conn = get_db(); cur = conn.cursor()
 
     cur.execute("SELECT * FROM service_orders WHERE id=%s", (order_id,))
@@ -1282,7 +1300,7 @@ def update_service_order(order_id):
 @app.route("/service-orders/<int:order_id>/status", methods=["PATCH"])
 @require_perm("services_edit")
 def update_service_order_status(order_id):
-    new_status = request.json.get("status")
+    new_status = (request.get_json(silent=True) or {}).get("status")
     if new_status not in ("active", "cancelled", "paid"):
         return jsonify({"error": "Недопустимый статус"}), 400
     conn = get_db(); cur = conn.cursor()
@@ -1307,7 +1325,7 @@ def delete_service_order(order_id):
 @app.route("/service-orders/bulk-delete", methods=["POST"])
 @require_perm("services_delete")
 def bulk_delete_service_orders():
-    ids = request.json.get("ids", [])
+    ids = (request.get_json(silent=True) or {}).get("ids", [])
     if not ids:
         return jsonify({"ok": True, "deleted": 0})
     conn = get_db(); cur = conn.cursor()

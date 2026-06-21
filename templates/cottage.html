@@ -125,7 +125,7 @@
               {% elif b.payment_type == 'card' %}<span class="pay-badge pay-card">💳 Безнал</span>
               {% else %}—{% endif %}
             </td>
-            <td class="col-xl notes-cell">{{ b.notes }}</td>
+            <td class="col-xl notes-cell" title="{{ b.notes }}"><div class="notes-inner">{{ b.notes }}</div></td>
             <td>
               {% if b.status == 'active' %}<span class="status-active">Активна</span>
               {% elif b.status == 'cancelled' %}<span class="status-cancelled">Отменена</span>

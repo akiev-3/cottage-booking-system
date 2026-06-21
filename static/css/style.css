@@ -366,13 +366,17 @@ tbody.sortable-rows tr, #orders-body tr { cursor: grab; }
 .bookings-table tr:hover td { background: #f8fafd; }
 .bookings-table tr.past td { color: var(--muted); }
 
-/* Заметки — единственная колонка с переносом */
+/* Заметки — текст обрезается с многоточием */
 .notes-cell {
-  white-space: normal;
   font-size: 0.82rem;
   color: var(--muted);
-  min-width: 120px;
-  max-width: 220px;
+  max-width: 200px;
+}
+.notes-inner {
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* ── Totals bar (итог под таблицей броней) ── */
@@ -696,7 +700,7 @@ textarea { resize: vertical; }
   .bookings-table th,
   .bookings-table td   { padding: 5px 6px; font-size: 0.66rem; white-space: nowrap; }
   .bookings-table th   { font-size: 0.6rem; letter-spacing: 0; }
-  .bookings-table .notes-cell { max-width: 90px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .bookings-table .notes-cell .notes-inner { max-width: 90px; }
   /* мелкие бейджи и кнопки внутри таблицы */
   .bookings-table .deposit-badge, .bookings-table .balance-badge,
   .bookings-table .paid-badge, .bookings-table .extra-badge,

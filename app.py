@@ -1371,7 +1371,7 @@ def _write_services_to_sheet(ws, orders):
             _PAYMENT_LABELS.get(o.get("payment_type") or "", "—"),
             o.get("plate","") or "—",
             _SVC_STATUS_RU.get(o.get("status") or "active", "Активен"),
-            o.get("notes",""),
+            (o.get("notes") or "").replace("\n", " "),
         ]
         row_fill = PatternFill("solid", fgColor="FFE4E4" if o.get("status") == "cancelled" else "FFFFFF")
         for col, val in enumerate(values, 1):
@@ -1549,7 +1549,7 @@ def _booking_row(b, seq_num):
         _effective_usd(b),                     # Сумма ($)
         _STATUS_LABELS.get(b.get("status") or "active", "Активна"),
         _PAYMENT_LABELS.get(b.get("payment_type") or "", "—"),  # Оплата
-        b.get("notes",""),
+        (b.get("notes") or "").replace("\n", " "),
     ]
 
 def _write_headers(ws, row=1):

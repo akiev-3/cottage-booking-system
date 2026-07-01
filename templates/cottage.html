@@ -198,18 +198,18 @@
       <div class="form-row">
         <div class="form-group">
           <label>Скидка (сом)</label>
-          <input type="number" id="booking-discount" min="0" step="100" placeholder="0" onchange="calcTotal()">
+          <input type="number" id="booking-discount" min="0" step="1" placeholder="0" onchange="calcTotal()">
           <small class="hint">вычитается из суммы</small>
         </div>
         <div class="form-group">
           <label>Аванс (сом)</label>
-          <input type="number" id="booking-deposit" min="0" step="100" placeholder="0">
+          <input type="number" id="booking-deposit" min="0" step="1" placeholder="0">
           <small class="hint">предоплата (не возвращается)</small>
         </div>
       </div>
       <div id="booking-extra-group" class="form-group" style="display:none">
         <label>Доплата за 1 доп. гостя (сом/ночь)</label>
-        <input type="number" id="booking-extra" min="0" step="100" placeholder="2000" oninput="calcTotal(); updateGuestLimit()">
+        <input type="number" id="booking-extra" min="0" step="1" placeholder="2000" oninput="calcTotal(); updateGuestLimit()">
         <small class="hint">за каждого гостя сверх вместимости · ставка × доп.гости × ночи</small>
       </div>
       <div class="form-group">

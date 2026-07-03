@@ -320,8 +320,8 @@ def serialize_booking(row) -> dict:
     b["late_checkout"]   = bool(b.get("late_checkout"))
     b["payment_type"]    = b.get("payment_type") or ""
     b["status"]          = b.get("status") or "active"
-    # При отмене брони остаток = 0 (аванс не возвращается, но больше ничего не взимается)
-    if b["status"] == "cancelled":
+    # Отменённые и оплаченные брони — остаток 0
+    if b["status"] in ("cancelled", "paid"):
         b["balance"] = 0.0
     else:
         b["balance"] = round(max(0.0, float(b.get("total") or 0) - b["deposit_paid"]), 2)

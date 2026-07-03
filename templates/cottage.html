@@ -25,6 +25,10 @@
   .status-paid      { background:#dcfce7;color:#166534;font-size:0.78rem;font-weight:700;padding:3px 9px;border-radius:12px;white-space:nowrap; }
   tr.booking-cancelled td { opacity:0.55; }
   tr.booking-cancelled td.actions-col { opacity:1; }
+  .transfer-info { background:#f8fafd; border:1px solid var(--border); border-radius:8px; padding:12px 16px; margin-bottom:16px; font-size:0.9rem; line-height:1.7; }
+  .hint-ok    { color:#166534; font-weight:600; }
+  .hint-err   { color:#991b1b; font-weight:600; }
+  .new-price-hint { margin-top:6px; color:#1d4ed8; font-size:0.83rem; }
 </style>
 </head>
 <body>
@@ -137,6 +141,10 @@
               <div class="row-actions">
                 <button class="btn btn-sm btn-outline" title="Изменить"
                         onclick='editBooking({{ b.id }}, {{ {"guest_name": b.guest_name, "check_in": b.check_in, "check_out": b.check_out, "guests": b.guests, "discount": b.discount, "deposit_paid": b.deposit_paid, "extra_per_night": b.extra_per_night, "early_checkin": b.early_checkin, "late_checkout": b.late_checkout, "payment_type": b.payment_type, "notes": b.notes}|tojson }})'>✏️</button>
+                {% if b.status != 'cancelled' %}
+                <button class="btn btn-sm btn-outline" title="Перенести в другой объект"
+                        onclick='openTransferModal({{ b.id }}, {{ {"guest_name": b.guest_name, "check_in": b.check_in, "check_out": b.check_out, "nights": b.nights, "total": b.total, "discount": b.discount}|tojson }})'>🔀</button>
+                {% endif %}
                 {% if b.status == 'active' %}
                 <button class="btn btn-sm btn-success" title="Отметить как оплаченную" onclick="setBookingStatus({{ b.id }}, 'paid')">✓</button>
                 <button class="btn btn-sm btn-danger"  title="Отменить бронь"           onclick="setBookingStatus({{ b.id }}, 'cancelled')">✗</button>
@@ -252,6 +260,32 @@
   </div>
 </div>
 
+<div id="modal-transfer" class="modal-overlay" onclick="closeModalOverlay(event, 'modal-transfer')">
+  <div class="modal" style="max-width:460px">
+    <div class="modal-header">
+      <h2 class="modal-title">Перенос брони</h2>
+      <button class="close-btn" onclick="closeModal('modal-transfer')">✕</button>
+    </div>
+    <div id="transfer-info" class="transfer-info"></div>
+    <div class="form-group">
+      <label class="form-label">Перенести в объект</label>
+      <select id="transfer-target" class="form-control" onchange="checkTransferAvailability()">
+        <option value="">— выберите объект —</option>
+      </select>
+    </div>
+    <div id="transfer-avail" style="margin-bottom:12px;font-size:0.9em"></div>
+    <div class="form-group" style="display:flex;align-items:center;gap:8px">
+      <input type="checkbox" id="transfer-keep-price" checked onchange="updateTransferPriceHint()">
+      <label for="transfer-keep-price" style="margin:0;cursor:pointer">Сохранить текущую сумму</label>
+    </div>
+    <div id="transfer-price-hint" class="new-price-hint" style="display:none"></div>
+    <div class="modal-actions">
+      <button id="transfer-submit-btn" class="btn btn-primary" onclick="submitTransfer()" disabled>Перенести</button>
+      <button class="btn btn-outline" onclick="closeModal('modal-transfer')">Отмена</button>
+    </div>
+  </div>
+</div>
+
 <div id="toast" class="toast"></div>
 
 <script>
@@ -262,6 +296,7 @@
   const BOOKED_RANGES  = {{ booked_ranges|tojson }};
   const PROPERTY_TYPE  = {{ cottage.property_type|tojson }};
   const EXTRA_FEE_TYPES = ['Коттедж', 'Номер отеля', 'Квартира'];
+  const COTTAGES = {{ other_cottages|tojson }};
 </script>
 <script src="{{ url_for('static', filename='js/cottage.js') }}"></script>
 <script>
@@ -310,6 +345,101 @@ async function bulkDeleteBookings() {
   if (!res.ok) { showToast('Ошибка при удалении','error'); return; }
   showToast(`Удалено: ${ids.length}`,'success');
   setTimeout(()=>location.reload(), 700);
+}
+
+let _transferBookingId = null;
+let _transferBooking   = null;
+
+function openTransferModal(id, b) {
+  _transferBookingId = id;
+  _transferBooking   = b;
+
+  // Заполнить шапку с информацией о брони
+  document.getElementById('transfer-info').innerHTML =
+    `<strong>${b.guest_name || 'Гость'}</strong><br>` +
+    `${b.check_in} — ${b.check_out} (${b.nights} ноч.)<br>` +
+    `Сумма: ${(b.total || 0).toLocaleString('ru-RU')} сом`;
+
+  // Заполнить список доступных объектов
+  const sel = document.getElementById('transfer-target');
+  sel.innerHTML = '<option value="">— выберите объект —</option>';
+  (COTTAGES || []).forEach(c => {
+    const opt = document.createElement('option');
+    opt.value = c.id;
+    opt.textContent = c.name;
+    sel.appendChild(opt);
+  });
+
+  document.getElementById('transfer-keep-price').checked = true;
+  document.getElementById('transfer-avail').innerHTML = '';
+  document.getElementById('transfer-price-hint').style.display = 'none';
+  document.getElementById('transfer-submit-btn').disabled = true;
+  openModal('modal-transfer');
+}
+
+async function checkTransferAvailability() {
+  const targetId = document.getElementById('transfer-target').value;
+  const avail    = document.getElementById('transfer-avail');
+  const btn      = document.getElementById('transfer-submit-btn');
+  btn.disabled = true;
+  avail.innerHTML = '';
+  if (!targetId || !_transferBooking) return;
+
+  avail.innerHTML = '<span style="color:#888">Проверяем доступность...</span>';
+  try {
+    const res  = await fetch(`/cottages/${targetId}/availability?check_in=${_transferBooking.check_in}&check_out=${_transferBooking.check_out}`);
+    const data = await res.json();
+    if (data.available) {
+      avail.innerHTML = `<span class="hint-ok">✓ Объект свободен в эти даты</span>`;
+      btn.disabled = false;
+      updateTransferPriceHint();
+    } else {
+      avail.innerHTML = `<span class="hint-err">✗ Объект занят в эти даты</span>`;
+    }
+  } catch {
+    avail.innerHTML = '<span class="hint-err">Ошибка при проверке</span>';
+  }
+}
+
+async function updateTransferPriceHint() {
+  const targetId  = document.getElementById('transfer-target').value;
+  const keepPrice = document.getElementById('transfer-keep-price').checked;
+  const hint      = document.getElementById('transfer-price-hint');
+  if (!targetId || keepPrice) { hint.style.display = 'none'; return; }
+
+  const target = (COTTAGES || []).find(c => String(c.id) === String(targetId));
+  if (!target || !_transferBooking) { hint.style.display = 'none'; return; }
+
+  const nights   = _transferBooking.nights || 0;
+  const newTotal = Math.max(0, nights * target.price_per_day - (_transferBooking.discount || 0));
+  hint.textContent = `Новая сумма по тарифу ${target.name}: ${newTotal.toLocaleString('ru-RU')} сом (${nights} ноч. × ${target.price_per_day.toLocaleString('ru-RU')} сом)`;
+  hint.style.display = 'block';
+}
+
+async function submitTransfer() {
+  const targetId  = document.getElementById('transfer-target').value;
+  const keepPrice = document.getElementById('transfer-keep-price').checked;
+  if (!targetId) { showToast('Выберите объект', 'error'); return; }
+  const target = (COTTAGES || []).find(c => String(c.id) === String(targetId));
+  const name   = target ? target.name : targetId;
+  if (!confirm(`Перенести бронь в «${name}»?`)) return;
+
+  const btn = document.getElementById('transfer-submit-btn');
+  btn.disabled = true;
+  try {
+    const res  = await fetch(`/bookings/${_transferBookingId}/transfer`, {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ target_cottage_id: parseInt(targetId), keep_price: keepPrice })
+    });
+    const data = await res.json();
+    if (!res.ok) { showToast(data.error || 'Ошибка', 'error'); btn.disabled = false; return; }
+    showToast(`Бронь перенесена в «${name}»`, 'success');
+    closeModal('modal-transfer');
+    setTimeout(() => location.reload(), 700);
+  } catch {
+    showToast('Ошибка при переносе', 'error');
+    btn.disabled = false;
+  }
 }
 </script>
 </body>

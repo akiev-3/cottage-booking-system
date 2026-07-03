@@ -972,6 +972,94 @@ def delete_booking(booking_id):
     return jsonify({"ok": True})
 
 
+@app.route("/cottages/<int:cottage_id>/availability")
+@require_perm("bookings_view")
+def cottage_availability(cottage_id):
+    """Проверка, свободен ли объект на заданные даты (GET ?check_in=&check_out=)."""
+    from datetime import date as _date
+    ci_str = request.args.get("check_in", "")
+    co_str = request.args.get("check_out", "")
+    try:
+        ci = _date.fromisoformat(ci_str)
+        co = _date.fromisoformat(co_str)
+    except ValueError:
+        return jsonify({"error": "Неверный формат дат"}), 400
+    conn = get_db(); cur = conn.cursor()
+    cur.execute("""
+        SELECT id FROM bookings
+        WHERE cottage_id = %s AND check_in < %s
+          AND (check_out + CASE WHEN late_checkout THEN 1 ELSE 0 END) > %s
+          AND status != 'cancelled'
+        LIMIT 1
+    """, (cottage_id, co, ci))
+    conflict = cur.fetchone()
+    cur.close(); conn.close()
+    return jsonify({"available": conflict is None})
+
+
+@app.route("/bookings/<int:booking_id>/transfer", methods=["POST"])
+@require_perm("bookings_edit")
+def transfer_booking(booking_id):
+    """Перенос брони в другой объект с проверкой доступности дат."""
+    body = request.get_json(silent=True)
+    if not body:
+        return jsonify({"error": "Ожидается JSON"}), 400
+
+    target_id  = int(body.get("target_cottage_id", 0))
+    keep_price = bool(body.get("keep_price", True))
+
+    conn = get_db(); cur = conn.cursor()
+
+    cur.execute("SELECT * FROM bookings WHERE id = %s", (booking_id,))
+    booking = cur.fetchone()
+    if not booking:
+        cur.close(); conn.close()
+        return jsonify({"error": "Бронь не найдена"}), 404
+
+    cur.execute("SELECT * FROM cottages WHERE id = %s", (target_id,))
+    target = cur.fetchone()
+    if not target:
+        cur.close(); conn.close()
+        return jsonify({"error": "Объект не найден"}), 404
+
+    ci  = booking["check_in"]
+    co  = booking["check_out"]
+    lco = booking.get("late_checkout", False)
+    co_eff = co + timedelta(days=1) if lco else co
+
+    cur.execute("""
+        SELECT id, check_in, check_out FROM bookings
+        WHERE cottage_id = %s AND check_in < %s
+          AND (check_out + CASE WHEN late_checkout THEN 1 ELSE 0 END) > %s
+          AND status != 'cancelled'
+    """, (target_id, co_eff, ci))
+    conflict = cur.fetchone()
+    if conflict:
+        cur.close(); conn.close()
+        return jsonify({"error": f"Объект {target['name']} занят: бронь #{conflict['id']} ({fmt_date(conflict['check_in'])} – {fmt_date(conflict['check_out'])})"}), 409
+
+    if keep_price:
+        cur.execute("UPDATE bookings SET cottage_id=%s, cottage_name=%s WHERE id=%s RETURNING *",
+                    (target_id, target["name"], booking_id))
+    else:
+        nights          = booking["nights"]
+        extra_per_night = float(booking.get("extra_per_night") or 0)
+        half            = round((target["price_per_day"] or 0) / 2)
+        early_late_fee  = half * (int(bool(booking.get("early_checkin"))) + int(bool(lco)))
+        discount        = float(booking.get("discount") or 0)
+        total_before    = nights * target["price_per_day"] + extra_per_night * nights + early_late_fee
+        total           = round(max(0, total_before - discount))
+        cur.execute("""
+            UPDATE bookings SET cottage_id=%s, cottage_name=%s,
+                total_before_discount=%s, total=%s, total_som=%s, early_late_fee=%s
+            WHERE id=%s RETURNING *
+        """, (target_id, target["name"], total_before, total, total, early_late_fee, booking_id))
+
+    row = cur.fetchone()
+    conn.commit(); cur.close(); conn.close()
+    return jsonify(serialize_booking(row))
+
+
 @app.route("/bookings/bulk-delete", methods=["POST"])
 @require_perm("bookings_edit")
 def bulk_delete_bookings():
@@ -1014,6 +1102,8 @@ def cottage_bookings_page(cottage_id):
     bookings = [serialize_booking(r) for r in cur.fetchall()]
     rate  = get_rate(cur)
     today = date.today().isoformat()
+    cur.execute("SELECT id, name, price_per_day, property_type FROM cottages WHERE id != %s ORDER BY position, id", (cottage_id,))
+    other_cottages = [dict(r) for r in cur.fetchall()]
     cur.close(); conn.close()
     # Занятые диапазоны для подсветки в календаре («поздний выезд» занимает и день выезда)
     booked_ranges = []
@@ -1030,7 +1120,8 @@ def cottage_bookings_page(cottage_id):
     return render_template("cottage.html", cottage=dict(cottage),
                            bookings=bookings, today=today, rate=rate,
                            booked_ranges=booked_ranges,
-                           total_usd=total_usd, total_som=total_som)
+                           total_usd=total_usd, total_som=total_som,
+                           other_cottages=other_cottages)
 
 
 # ── Services ──────────────────────────────────────────────

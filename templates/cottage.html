@@ -40,6 +40,7 @@
   </div>
   <div class="header-right">
     <a href="/map" class="btn btn-outline">🗺️ Карта</a>
+    <a href="/dashboard" class="btn btn-outline">📊 Оперативка</a>
     {% if can('services_view') %}<a href="/services" class="btn btn-outline">🛎️ Услуги</a>{% endif %}
     {% if can('excel') %}<a href="/export/excel/{{ cottage.id }}" class="btn btn-excel">⬇️ Excel</a>{% endif %}
     {% if can('bookings_edit') %}<button class="btn btn-success" onclick="openCreateBooking()">+ Новая бронь</button>{% endif %}

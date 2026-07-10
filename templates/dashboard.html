@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Оперативка</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+<script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+</head>
+<body>
+
+<header>
+  <h1>📊 Оперативка</h1>
+  <div class="header-right">
+    <a href="/" class="btn btn-outline">← Объекты</a>
+    <a href="/map" class="btn btn-outline">🗺️ Карта</a>
+    {% if can('services_view') %}<a href="/services" class="btn btn-outline">🛎️ Услуги</a>{% endif %}
+    <span class="role-badge">{{ role }}</span>
+    <a href="/logout" class="btn btn-outline">Выйти</a>
+  </div>
+</header>
+
+<main class="dash-main">
+
+  <!-- ── Блок 1: Кто живёт ──────────────────────────────── -->
+  <section class="dash-section">
+    <div class="dash-section-head">
+      <h2 class="dash-section-title">💳 Кто живёт и что должен</h2>
+      <div class="dash-date-row">
+        <label class="form-label" style="margin:0">На дату:</label>
+        <input type="text" id="owing-date" class="form-control dash-date-input">
+      </div>
+    </div>
+    <div id="owing-result" class="dash-placeholder">Загрузка...</div>
+  </section>
+
+  <!-- ── Блок 2: Свободные объекты ──────────────────────── -->
+  <section class="dash-section">
+    <h2 class="dash-section-title">🔍 Свободные объекты</h2>
+    <div class="dash-search-row">
+      <div class="form-group" style="margin:0">
+        <label class="form-label">Заезд</label>
+        <input type="text" id="avail-checkin" class="form-control dash-date-input" placeholder="дд/мм/гг">
+      </div>
+      <div class="form-group" style="margin:0">
+        <label class="form-label">Выезд</label>
+        <input type="text" id="avail-checkout" class="form-control dash-date-input" placeholder="дд/мм/гг">
+      </div>
+      <button class="btn btn-primary dash-search-btn" onclick="searchAvailability()">Проверить</button>
+    </div>
+    <div id="avail-result"></div>
+  </section>
+
+</main>
+
+<div id="toast" class="toast"></div>
+
+<script>
+const TODAY = '{{ today }}';
+const RATE  = {{ rate }};
+
+const FP_RU = {
+  weekdays: {
+    shorthand: ['Вс','Пн','Вт','Ср','Чт','Пт','Сб'],
+    longhand:  ['Воскресенье','Понедельник','Вторник','Среда','Четверг','Пятница','Суббота'],
+  },
+  months: {
+    shorthand: ['Янв','Фев','Мар','Апр','Май','Июн','Июл','Авг','Сен','Окт','Ноя','Дек'],
+    longhand:  ['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'],
+  },
+  firstDayOfWeek: 1,
+};
+flatpickr.localize(FP_RU);
+
+const PAY_LABELS = { cash:'Наличные', card:'Карта', transfer:'Перевод' };
+
+function fmtDate(iso) {
+  if (!iso) return '—';
+  const [y, m, d] = iso.split('-');
+  return `${d}.${m}.${y}`;
+}
+
+function showToast(msg, type) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'toast ' + (type || '');
+  void t.offsetWidth;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 3000);
+}
+
+// ── Блок 1 ─────────────────────────────────────────────────
+let owingDateVal = TODAY;
+
+document.addEventListener('DOMContentLoaded', () => {
+  flatpickr('#owing-date', {
+    dateFormat: 'Y-m-d', altInput: true, altFormat: 'd MMMM Y',
+    defaultDate: TODAY, locale: FP_RU,
+    onChange: (sel) => {
+      if (sel[0]) {
+        owingDateVal = sel[0].getFullYear() + '-'
+          + String(sel[0].getMonth()+1).padStart(2,'0') + '-'
+          + String(sel[0].getDate()).padStart(2,'0');
+        loadOwing();
+      }
+    }
+  });
+
+  let fpOut;
+  const fpIn = flatpickr('#avail-checkin', {
+    dateFormat: 'Y-m-d', altInput: true, altFormat: 'd/m/Y',
+    locale: FP_RU, minDate: 'today',
+    onChange: (sel) => {
+      if (sel[0] && fpOut) {
+        const m = new Date(sel[0]); m.setDate(m.getDate() + 2);
+        fpOut.set('minDate', m);
+      }
+    }
+  });
+  fpOut = flatpickr('#avail-checkout', {
+    dateFormat: 'Y-m-d', altInput: true, altFormat: 'd/m/Y',
+    locale: FP_RU, minDate: 'today',
+  });
+
+  loadOwing();
+});
+
+async function loadOwing() {
+  const el = document.getElementById('owing-result');
+  el.textContent = 'Загрузка...';
+  el.className = 'dash-placeholder';
+  try {
+    const res  = await fetch(`/dashboard/owing?date=${owingDateVal}`);
+    const data = await res.json();
+    renderOwing(data);
+  } catch {
+    el.textContent = 'Ошибка загрузки';
+  }
+}
+
+function renderOwing(bookings) {
+  const el = document.getElementById('owing-result');
+  if (!bookings.length) {
+    el.className = 'dash-placeholder';
+    el.textContent = 'На эту дату нет активных гостей';
+    return;
+  }
+  el.className = '';
+
+  const owing = bookings.filter(b => b.balance > 0 && b.status !== 'paid');
+  const paid  = bookings.filter(b => b.balance <= 0 || b.status === 'paid');
+
+  let html = '';
+
+  if (owing.length) {
+    html += `<div class="dash-group-label dash-owing-label">⚠️ Есть задолженность (${owing.length})</div>`;
+    html += buildOwingTable(owing);
+  }
+  if (paid.length) {
+    html += `<div class="dash-group-label dash-paid-label" style="margin-top:${owing.length?'20px':'0'}">✓ Оплачено (${paid.length})</div>`;
+    html += buildOwingTable(paid);
+  }
+
+  el.innerHTML = html;
+}
+
+function buildOwingTable(rows) {
+  let t = `<div class="dash-table-wrap"><table class="bookings-table">
+    <thead><tr>
+      <th>Объект</th><th>Гость</th><th>Заезд</th><th>Выезд</th>
+      <th>Сумма</th><th>Аванс</th><th>Остаток</th><th>Оплата</th>
+    </tr></thead><tbody>`;
+  for (const b of rows) {
+    const due = b.balance > 0 && b.status !== 'paid';
+    const balHtml = due
+      ? `<span class="balance-badge">${Math.round(b.balance).toLocaleString('ru-RU')}</span>`
+      : `<span class="paid-badge">✓ Оплачено</span>`;
+    const dep = b.deposit_paid ? Math.round(b.deposit_paid).toLocaleString('ru-RU') + ' сом' : '—';
+    t += `<tr class="${due ? 'row-owing' : ''}">
+      <td><a href="/cottages/${b.cottage_id}/bookings" class="dash-link">${b.cottage_name || '—'}</a></td>
+      <td>${b.guest_name || '—'}</td>
+      <td>${fmtDate(b.check_in)}</td>
+      <td>${fmtDate(b.check_out)}</td>
+      <td>${Math.round(b.total || 0).toLocaleString('ru-RU')} сом</td>
+      <td>${dep}</td>
+      <td>${balHtml}</td>
+      <td>${PAY_LABELS[b.payment_type] || '—'}</td>
+    </tr>`;
+  }
+  t += '</tbody></table></div>';
+  return t;
+}
+
+// ── Блок 2 ─────────────────────────────────────────────────
+async function searchAvailability() {
+  const ci = document.getElementById('avail-checkin').value;
+  const co = document.getElementById('avail-checkout').value;
+  if (!ci || !co) { showToast('Выберите даты заезда и выезда', 'error'); return; }
+
+  const el = document.getElementById('avail-result');
+  el.innerHTML = '<div class="dash-placeholder">Загрузка...</div>';
+
+  const res  = await fetch(`/dashboard/availability?check_in=${ci}&check_out=${co}`);
+  const data = await res.json();
+  if (!res.ok) { el.innerHTML = `<div class="dash-placeholder">${data.error || 'Ошибка'}</div>`; return; }
+
+  renderAvailability(data.cottages, ci, co, data.rate);
+}
+
+function renderAvailability(cottages, ci, co, rate) {
+  const el     = document.getElementById('avail-result');
+  const nights = Math.round((new Date(co) - new Date(ci)) / 86400000);
+  const free   = cottages.filter(c => c.available);
+  const busy   = cottages.filter(c => !c.available);
+
+  let html = `<div class="avail-summary">`;
+  html += `<span class="avail-summary-free">✓ Свободно: ${free.length}</span>`;
+  html += `<span class="avail-summary-busy">✗ Занято: ${busy.length}</span>`;
+  html += `<span class="avail-summary-nights">${nights} ноч. · ${fmtDate(ci)} — ${fmtDate(co)}</span>`;
+  html += `</div>`;
+
+  html += `<div class="avail-grid">`;
+  for (const c of free) {
+    const total    = (c.price_per_day || 0) * nights;
+    const totalUsd = rate ? Math.round(total / rate) : 0;
+    html += `<div class="avail-card avail-free">
+      <div class="avail-name">${c.name}</div>
+      <div class="avail-meta">${c.capacity} чел. · ${(c.price_per_day||0).toLocaleString('ru-RU')} сом/ночь</div>
+      <div class="avail-total">${total.toLocaleString('ru-RU')} сом${rate ? ` ≈ $${totalUsd}` : ''}</div>
+      <a href="/cottages/${c.id}/bookings" class="btn btn-sm btn-primary avail-book-btn">Забронировать →</a>
+    </div>`;
+  }
+  for (const c of busy) {
+    const lines = (c.conflicts || []).map(b =>
+      `${b.guest_name || 'Гость'}: ${fmtDate(b.check_in)} – ${fmtDate(b.check_out)}`
+    ).join('<br>');
+    html += `<div class="avail-card avail-busy">
+      <div class="avail-name">${c.name}</div>
+      <div class="avail-conflict">${lines || 'Занято'}</div>
+    </div>`;
+  }
+  html += `</div>`;
+  el.innerHTML = html;
+}
+</script>
+</body>
+</html>

@@ -564,6 +564,42 @@ textarea { resize: vertical; }
   padding-top: 4px;
 }
 
+/* ── Dashboard ── */
+.dash-main { max-width: 1000px; margin: 0 auto; padding: 24px 20px; }
+.dash-section { margin-bottom: 44px; }
+.dash-section-head { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-bottom: 14px; }
+.dash-section-title { font-size: 1.15rem; font-weight: 700; margin: 0; }
+.dash-date-row { display: flex; align-items: center; gap: 8px; }
+.dash-date-input { width: 150px; }
+.dash-search-row { display: flex; align-items: flex-end; gap: 12px; flex-wrap: wrap; margin-bottom: 20px; }
+.dash-search-btn { align-self: flex-end; }
+.dash-placeholder { color: #888; padding: 20px 0; text-align: center; font-size: 0.9rem; }
+.dash-table-wrap { overflow-x: auto; }
+.dash-group-label { font-size: 0.82rem; font-weight: 700; letter-spacing: 0.04em;
+  text-transform: uppercase; padding: 4px 0 8px; }
+.dash-owing-label { color: #92400e; }
+.dash-paid-label  { color: #166534; }
+.row-owing { background: #fffbeb; }
+.row-owing:hover { background: #fef3c7; }
+.dash-link { color: var(--primary); text-decoration: none; font-weight: 600; }
+.dash-link:hover { text-decoration: underline; }
+
+/* Availability grid */
+.avail-summary { display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 16px;
+  font-size: 0.88rem; font-weight: 600; }
+.avail-summary-free  { color: #166534; }
+.avail-summary-busy  { color: #991b1b; }
+.avail-summary-nights { color: #555; font-weight: 400; }
+.avail-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 14px; }
+.avail-card { border-radius: 10px; padding: 14px 16px; border: 2px solid; }
+.avail-free { background: #f0fdf4; border-color: #86efac; }
+.avail-busy { background: #fef2f2; border-color: #fca5a5; }
+.avail-name { font-size: 1.1rem; font-weight: 700; margin-bottom: 5px; }
+.avail-meta { font-size: 0.8rem; color: #555; margin-bottom: 3px; }
+.avail-total { font-size: 0.88rem; font-weight: 600; color: #166534; margin-bottom: 8px; }
+.avail-conflict { font-size: 0.82rem; color: #991b1b; line-height: 1.5; }
+.avail-book-btn { display: inline-block; margin-top: 4px; }
+
 /* ── Toast ── */
 .toast {
   position: fixed;

@@ -382,6 +382,75 @@ def home_redirect():
 
 # ── Main ──────────────────────────────────────────────────
 
+@app.route("/dashboard")
+@require_perm("bookings_view")
+def dashboard():
+    conn = get_db(); cur = conn.cursor()
+    rate = get_rate(cur)
+    cur.close(); conn.close()
+    return render_template("dashboard.html", today=date.today().isoformat(), rate=rate)
+
+
+@app.route("/dashboard/owing")
+@require_perm("bookings_view")
+def dashboard_owing():
+    date_str = request.args.get("date", date.today().isoformat())
+    try:
+        d = date.fromisoformat(date_str)
+    except ValueError:
+        d = date.today()
+    conn = get_db(); cur = conn.cursor()
+    cur.execute("""
+        SELECT * FROM bookings
+        WHERE check_in <= %s AND check_out >= %s
+          AND status != 'cancelled'
+        ORDER BY check_out, cottage_name
+    """, (d, d))
+    bookings = [serialize_booking(r) for r in cur.fetchall()]
+    cur.close(); conn.close()
+    bookings.sort(key=lambda b: (0 if b["balance"] > 0 and b["status"] != "paid" else 1, b["check_out"]))
+    return jsonify(bookings)
+
+
+@app.route("/dashboard/availability")
+@require_perm("bookings_view")
+def dashboard_availability():
+    from datetime import date as _date
+    ci_str = request.args.get("check_in", "")
+    co_str = request.args.get("check_out", "")
+    try:
+        ci = _date.fromisoformat(ci_str)
+        co = _date.fromisoformat(co_str)
+    except ValueError:
+        return jsonify({"error": "Неверный формат дат"}), 400
+    if ci >= co:
+        return jsonify({"error": "Дата выезда должна быть позже даты заезда"}), 400
+    conn = get_db(); cur = conn.cursor()
+    cur.execute("SELECT id, name, price_per_day, capacity, property_type FROM cottages ORDER BY position, id")
+    cottages = [dict(r) for r in cur.fetchall()]
+    cur.execute("""
+        SELECT cottage_id,
+               json_agg(json_build_object(
+                   'id', id,
+                   'guest_name', guest_name,
+                   'check_in', check_in::text,
+                   'check_out', check_out::text
+               ) ORDER BY check_in) AS conflicts
+        FROM bookings
+        WHERE check_in < %s
+          AND (check_out + CASE WHEN late_checkout THEN 1 ELSE 0 END) > %s
+          AND status != 'cancelled'
+        GROUP BY cottage_id
+    """, (co, ci))
+    occupied_map = {r["cottage_id"]: r["conflicts"] for r in cur.fetchall()}
+    rate = get_rate(cur)
+    cur.close(); conn.close()
+    for c in cottages:
+        c["available"] = c["id"] not in occupied_map
+        c["conflicts"] = occupied_map.get(c["id"]) or []
+    return jsonify({"cottages": cottages, "rate": rate})
+
+
 @app.route("/")
 @require_perm("bookings_view")
 def index():

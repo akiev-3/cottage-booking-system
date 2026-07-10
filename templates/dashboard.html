@@ -95,7 +95,7 @@ let owingDateVal = TODAY;
 
 document.addEventListener('DOMContentLoaded', () => {
   flatpickr('#owing-date', {
-    dateFormat: 'Y-m-d', altInput: true, altFormat: 'd MMMM Y',
+    dateFormat: 'Y-m-d', altInput: true, altFormat: 'd F Y',
     defaultDate: TODAY, locale: FP_RU,
     onChange: (sel) => {
       if (sel[0]) {

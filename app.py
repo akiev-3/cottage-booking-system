@@ -401,10 +401,12 @@ def dashboard_owing():
         d = date.today()
     conn = get_db(); cur = conn.cursor()
     cur.execute("""
-        SELECT * FROM bookings
-        WHERE check_in <= %s AND check_out >= %s
-          AND status != 'cancelled'
-        ORDER BY check_out, cottage_name
+        SELECT b.* FROM bookings b
+        JOIN cottages c ON c.id = b.cottage_id
+        WHERE b.check_in <= %s AND b.check_out >= %s
+          AND b.status != 'cancelled'
+          AND c.owner_type != 'Собственник'
+        ORDER BY b.check_out, b.cottage_name
     """, (d, d))
     bookings = [serialize_booking(r) for r in cur.fetchall()]
     cur.close(); conn.close()
@@ -426,7 +428,7 @@ def dashboard_availability():
     if ci >= co:
         return jsonify({"error": "Дата выезда должна быть позже даты заезда"}), 400
     conn = get_db(); cur = conn.cursor()
-    cur.execute("SELECT id, name, price_per_day, capacity, property_type FROM cottages ORDER BY position, id")
+    cur.execute("SELECT id, name, price_per_day, capacity, property_type FROM cottages WHERE owner_type != 'Собственник' ORDER BY position, id")
     cottages = [dict(r) for r in cur.fetchall()]
     cur.execute("""
         SELECT cottage_id,

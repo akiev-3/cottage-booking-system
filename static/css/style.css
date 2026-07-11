@@ -564,6 +564,26 @@ textarea { resize: vertical; }
   padding-top: 4px;
 }
 
+/* ── Quick-book banner ── */
+.quickbook-banner {
+  background: #eff6ff; border-bottom: 2px solid #bfdbfe;
+  padding: 9px 20px; display: flex; align-items: center;
+  gap: 12px; font-size: 0.88rem; color: #1e40af; flex-wrap: wrap;
+}
+.quickbook-banner b { font-weight: 700; }
+
+/* ── Booking success panel (inside modal) ── */
+.booking-success-panel { padding: 28px 24px 20px; text-align: center; }
+.success-check {
+  width: 50px; height: 50px; border-radius: 50%;
+  background: #dcfce7; color: #166534;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 1.5rem; margin: 0 auto 12px;
+}
+.success-title { font-size: 1.1rem; font-weight: 700; margin-bottom: 4px; }
+.success-info  { color: #555; font-size: 0.9rem; margin-bottom: 22px; }
+.success-actions { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+
 /* ── Dashboard ── */
 .dash-main { max-width: 1000px; margin: 0 auto; padding: 24px 20px; }
 .dash-section { margin-bottom: 44px; }

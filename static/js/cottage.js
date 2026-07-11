@@ -60,6 +60,61 @@ function showBusyHint() {
   if (hint) hint.style.display = 'none';
 }
 
+// ── Быстрое повторное бронирование ──
+let _quickbook = null;
+let _lastBookingBody = null;
+
+function fmtDate(iso) {
+  if (!iso) return '—';
+  const [y, m, d] = iso.split('-');
+  return `${d}.${m}.${y}`;
+}
+
+(function initQuickbook() {
+  try {
+    const raw = sessionStorage.getItem('quickbook');
+    if (!raw) return;
+    _quickbook = JSON.parse(raw);
+    document.addEventListener('DOMContentLoaded', () => {
+      const banner = document.getElementById('quickbook-banner');
+      const text   = document.getElementById('quickbook-text');
+      if (!banner || !text) return;
+      text.innerHTML = `Быстрое бронирование для <b>${_quickbook.guest_name || 'гостя'}</b> · ${fmtDate(_quickbook.check_in)} — ${fmtDate(_quickbook.check_out)}`;
+      banner.style.display = 'flex';
+    });
+  } catch (_) { sessionStorage.removeItem('quickbook'); }
+})();
+
+function dismissQuickbook() {
+  _quickbook = null;
+  sessionStorage.removeItem('quickbook');
+  const b = document.getElementById('quickbook-banner');
+  if (b) b.style.display = 'none';
+}
+
+function showBookingSuccessPanel(guestName, ci, co) {
+  document.getElementById('form-booking').style.display = 'none';
+  const panel = document.getElementById('booking-success-panel');
+  if (panel) panel.style.display = 'block';
+  const nameEl = document.getElementById('booking-success-name');
+  const infoEl = document.getElementById('booking-success-info');
+  if (nameEl) nameEl.textContent = guestName || 'гостя';
+  if (infoEl) infoEl.textContent = `${guestName} · ${fmtDate(ci)} — ${fmtDate(co)}`;
+}
+
+function closeBookingDone() {
+  closeModal('modal-booking');
+  location.reload();
+}
+
+function addAnotherBooking() {
+  if (_lastBookingBody) {
+    sessionStorage.setItem('quickbook', JSON.stringify(_lastBookingBody));
+  }
+  // На странице коттеджа "ещё объект" = переход на главную для выбора другого объекта
+  window.location.href = '/';
+}
+
 let fpCheckin = null, fpCheckout = null;
 function initCalendars(allowPast) {
   const disableIn  = occupiedNights(activeRanges());
@@ -96,6 +151,11 @@ function updateGuestLimit() {
 
 // Открыть форму создания
 function openCreateBooking() {
+  // Сброс к форме (если показана панель успеха)
+  document.getElementById('form-booking').style.display = '';
+  const sp = document.getElementById('booking-success-panel');
+  if (sp) sp.style.display = 'none';
+
   excludeRange = null;
   document.getElementById('form-booking').reset();
   document.getElementById('booking-id').value = '';
@@ -103,10 +163,34 @@ function openCreateBooking() {
   document.getElementById('booking-submit-btn').textContent  = 'Забронировать';
   document.getElementById('total-block').style.display = 'none';
   applyExtraFieldVisibility();
-  updateGuestLimit();
   initCalendars(false);
-  if (fpCheckin) fpCheckin.clear();
-  if (fpCheckout) fpCheckout.clear();
+
+  // Предзаполнение из быстрого бронирования
+  if (_quickbook) {
+    document.getElementById('booking-guest-name').value = _quickbook.guest_name  || '';
+    document.getElementById('booking-guests').value     = _quickbook.guests       || '';
+    document.getElementById('booking-discount').value   = _quickbook.discount     || '';
+    document.getElementById('booking-deposit').value    = _quickbook.deposit_paid || '';
+    document.getElementById('booking-payment').value    = _quickbook.payment_type || '';
+    document.getElementById('booking-notes').value      = _quickbook.notes        || '';
+    document.getElementById('booking-early-checkin').checked = !!_quickbook.early_checkin;
+    document.getElementById('booking-late-checkout').checked = !!_quickbook.late_checkout;
+    if (fpCheckin  && _quickbook.check_in)  fpCheckin.setDate(_quickbook.check_in, false);
+    if (fpCheckout && _quickbook.check_out) {
+      if (_quickbook.check_in) {
+        const m = new Date(_quickbook.check_in + 'T00:00:00');
+        m.setDate(m.getDate() + 2);
+        fpCheckout.set('minDate', m);
+      }
+      fpCheckout.setDate(_quickbook.check_out, false);
+    }
+    calcTotal();
+  } else {
+    if (fpCheckin)  fpCheckin.clear();
+    if (fpCheckout) fpCheckout.clear();
+  }
+
+  updateGuestLimit();
   openModal('modal-booking');
 }
 
@@ -224,9 +308,16 @@ async function submitBookingPage(e) {
   const res  = await fetch(url, { method, headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
   const data = await res.json();
   if (!res.ok) { showToast(data.error, 'error'); return; }
-  showToast(id ? 'Бронь обновлена!' : 'Бронь добавлена!', 'success');
-  closeModal('modal-booking');
-  setTimeout(() => location.reload(), 700);
+  if (id) {
+    // Редактирование — просто закрыть и перезагрузить
+    showToast('Бронь обновлена!', 'success');
+    closeModal('modal-booking');
+    setTimeout(() => location.reload(), 700);
+  } else {
+    // Новая бронь — показать панель успеха с кнопкой «Ещё объект»
+    _lastBookingBody = body;
+    showBookingSuccessPanel(body.guest_name, body.check_in, body.check_out);
+  }
 }
 
 async function deleteBooking(id) {

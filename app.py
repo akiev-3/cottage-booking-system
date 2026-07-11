@@ -428,7 +428,18 @@ def dashboard_availability():
     if ci >= co:
         return jsonify({"error": "Дата выезда должна быть позже даты заезда"}), 400
     conn = get_db(); cur = conn.cursor()
-    cur.execute("SELECT id, name, price_per_day, capacity, property_type FROM cottages WHERE owner_type != 'Собственник' ORDER BY position, id")
+    cur.execute("""
+        SELECT id, name, price_per_day, capacity, property_type FROM cottages
+        WHERE owner_type != 'Собственник'
+          AND NOT (property_type = 'Номер для сотрудников' AND (price_per_day IS NULL OR price_per_day = 0))
+        ORDER BY
+          CASE property_type
+            WHEN 'Коттедж'       THEN 1
+            WHEN 'Квартира'      THEN 2
+            WHEN 'Номер отеля'   THEN 3
+            ELSE                      4
+          END, position, id
+    """)
     cottages = [dict(r) for r in cur.fetchall()]
     cur.execute("""
         SELECT cottage_id,

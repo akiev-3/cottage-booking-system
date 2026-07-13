@@ -154,7 +154,7 @@
             {% if can('services_delete') %}<th class="cb-col"><input type="checkbox" id="orders-check-all" title="Выбрать все" onchange="toggleAllOrders(this)"></th>{% endif %}
             <th class="num-col">#</th><th>Дата начала</th><th>Дата оконч.</th>
             <th>Услуга</th><th>Категория</th><th>Тип объекта</th><th>Объект</th>
-            <th>Кол-во</th><th>Цена</th><th>Итого</th><th>Оплата</th>
+            <th>Кол-во</th><th>Цена</th><th>Итого</th><th>Оплата</th><th>Дата оплаты</th>
             <th>Гос. номер</th><th>Заметки</th><th>Статус</th>{% if can('services_edit') or can('services_delete') %}<th></th>{% endif %}
           </tr>
         </thead>
@@ -177,6 +177,7 @@
               {% elif o.payment_type == 'card' %}<span class="pay-badge pay-card">💳 Безнал</span>
               {% else %}—{% endif %}
             </td>
+            <td>{% if o.payment_date %}{{ o.payment_date|fmtdate }}{% else %}—{% endif %}</td>
             <td>{% if o.plate %}<span class="plate-badge">{{ o.plate }}</span>{% else %}—{% endif %}</td>
             <td class="notes-col" title="{{ o.notes }}"><div class="notes-inner">{{ o.notes }}</div></td>
             <td>
@@ -350,13 +351,19 @@
         </div>
       </div>
 
-      <div class="form-group">
-        <label>Оплата</label>
-        <select id="order-payment" class="sel">
-          <option value="">— не указано</option>
-          <option value="cash">💵 Наличный</option>
-          <option value="card">💳 Безналичный</option>
-        </select>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Способ оплаты</label>
+          <select id="order-payment" class="sel">
+            <option value="">— не указано</option>
+            <option value="cash">💵 Нал</option>
+            <option value="card">💳 Безнал</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Дата оплаты</label>
+          <input type="text" id="order-payment-date" class="form-control" placeholder="—" readonly>
+        </div>
       </div>
 
       <div class="form-group">
@@ -556,6 +563,7 @@ function openNewOrder() {
   document.getElementById('order-id').value = '';
   document.getElementById('order-modal-title').textContent = 'Новый заказ услуги';
   document.getElementById('form-order').reset();
+  if (window._fpOrderPayDate) window._fpOrderPayDate.clear();
   document.getElementById('order-date').value = new Date().toISOString().slice(0,10);
   isParking = false;
   document.getElementById('parking-group').style.display = 'none';
@@ -589,6 +597,7 @@ function openEditOrder(data) {
   document.getElementById('order-price').value        = data.price        || 0;
   document.getElementById('order-plate').value        = data.plate        || '';
   document.getElementById('order-payment').value      = data.payment_type || '';
+  if (window._fpOrderPayDate) window._fpOrderPayDate.setDate(data.payment_date || null, false);
   document.getElementById('order-notes').value        = data.notes        || '';
   calcOrderTotal();
   openModal('modal-order');
@@ -609,6 +618,7 @@ async function submitOrder(e) {
     price:        document.getElementById('order-price').value,
     plate:        document.getElementById('order-plate').value.toUpperCase(),
     payment_type: document.getElementById('order-payment').value,
+    payment_date: document.getElementById('order-payment-date').value || null,
     notes:        document.getElementById('order-notes').value.trim(),
   };
   if (!body.service_id && !body.custom_name) { showToast('Введите название услуги','error'); return; }
@@ -776,6 +786,9 @@ async function bulkDeleteCatalog() {
 // Инициализация
 document.getElementById('order-date').value = new Date().toISOString().slice(0,10);
 onOwnerTypeChange();
+window._fpOrderPayDate = flatpickr('#order-payment-date', {
+  dateFormat:'Y-m-d', altInput:true, altFormat:'d/m/Y', locale: typeof FP_RU !== 'undefined' ? FP_RU : {}
+});
 
 // Восстановление активных вкладок и фильтров после перезагрузки
 (function restoreTabs() {

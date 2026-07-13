@@ -272,6 +272,7 @@ def init_db():
     cur.execute("ALTER TABLE service_orders ADD COLUMN IF NOT EXISTS object_type VARCHAR(50) DEFAULT ''")
     cur.execute("ALTER TABLE service_orders ADD COLUMN IF NOT EXISTS position INT DEFAULT 0")
     cur.execute("ALTER TABLE service_orders ADD COLUMN IF NOT EXISTS payment_type VARCHAR(20) DEFAULT ''")
+    cur.execute("ALTER TABLE service_orders ADD COLUMN IF NOT EXISTS payment_date DATE DEFAULT NULL")
     cur.execute("ALTER TABLE service_orders ADD COLUMN IF NOT EXISTS status VARCHAR(20) DEFAULT 'active'")
     cur.execute("UPDATE service_orders SET position = id WHERE position = 0 OR position IS NULL")
     # Бэкфилл object_type из связанного объекта
@@ -1407,16 +1408,17 @@ def create_service_order():
     cur.execute("""
         INSERT INTO service_orders
             (service_id, service_name, category, cottage_id, cottage_name,
-             service_date, end_date, quantity, price, total, plate, notes, object_type, payment_type, position)
-        VALUES (%s,%s,%s,%s,%s, %s,%s,%s,%s,%s,%s,%s,%s,%s,
+             service_date, end_date, quantity, price, total, plate, notes, object_type, payment_type, payment_date, position)
+        VALUES (%s,%s,%s,%s,%s, %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
                 (SELECT COALESCE(MAX(position),0)+1 FROM service_orders)) RETURNING *
     """, (svc["id"], service_name, svc["category"],
           cottage_id, cottage_name,
           body["service_date"], end_date, qty, price, total,
-          body.get("plate",""), body.get("notes",""), object_type, (body.get("payment_type") or "")))
+          body.get("plate",""), body.get("notes",""), object_type,
+          body.get("payment_type") or "", body.get("payment_date") or None))
     order = dict(cur.fetchone())
     conn.commit(); cur.close(); conn.close()
-    for f in ("service_date", "end_date"):
+    for f in ("service_date", "end_date", "payment_date"):
         if isinstance(order.get(f), date):
             order[f] = order[f].isoformat()
     return jsonify(order), 201
@@ -1475,21 +1477,22 @@ def update_service_order(order_id):
     service_name = body.get("custom_name","").strip() or svc["name"]
 
     payment_type = body.get("payment_type") if "payment_type" in body else (existing.get("payment_type") or "")
+    payment_date = body.get("payment_date") if "payment_date" in body else existing.get("payment_date")
     cur.execute("""
         UPDATE service_orders SET
             service_id=%s, service_name=%s, category=%s,
             cottage_id=%s, cottage_name=%s,
             service_date=%s, end_date=%s, quantity=%s,
-            price=%s, total=%s, plate=%s, notes=%s, object_type=%s, payment_type=%s
+            price=%s, total=%s, plate=%s, notes=%s, object_type=%s, payment_type=%s, payment_date=%s
         WHERE id=%s RETURNING *
     """, (svc["id"], service_name, svc["category"],
           cottage_id, cottage_name,
           body["service_date"], end_date, qty, price, total,
           body.get("plate",""), body.get("notes",""), object_type, payment_type,
-          order_id))
+          payment_date or None, order_id))
     order = dict(cur.fetchone())
     conn.commit(); cur.close(); conn.close()
-    for f in ("service_date", "end_date"):
+    for f in ("service_date", "end_date", "payment_date"):
         if isinstance(order.get(f), date):
             order[f] = order[f].isoformat()
     return jsonify(order)
@@ -1540,13 +1543,13 @@ _SVC_STATUS_RU = {"active": "Активен", "paid": "Оплачен", "cancell
 def _write_services_to_sheet(ws, orders):
     """Записывает данные заказов услуг в существующий лист."""
     headers    = ["№","Дата начала","Дата окончания","Категория","Услуга",
-                  "Коттеджи / Квартиры / Номера","Кол-во","Цена (сом)","Итого (сом)","Оплата","Гос. номер","Статус","Заметки"]
-    col_widths = [6, 14, 16, 18, 34, 30, 8, 13, 14, 14, 16, 12, 30]
+                  "Коттеджи / Квартиры / Номера","Кол-во","Цена (сом)","Итого (сом)","Оплата","Дата оплаты","Гос. номер","Статус","Заметки"]
+    col_widths = [6, 14, 16, 18, 34, 30, 8, 13, 14, 14, 14, 16, 12, 30]
     hf     = Font(bold=True, color="FFFFFF")
     hfill  = _header_fill("4F6EF7")
     border = _thin_border()
     center = Alignment(horizontal="center", vertical="center")
-    CENTER = {1, 2, 3, 7, 8, 9, 10, 12}
+    CENTER = {1, 2, 3, 7, 8, 9, 10, 11, 13}
 
     for col, (h, w) in enumerate(zip(headers, col_widths), 1):
         cell = ws.cell(row=1, column=col, value=h)
@@ -1567,6 +1570,7 @@ def _write_services_to_sheet(ws, orders):
             o.get("price", 0),
             o.get("total", 0),
             _PAYMENT_LABELS.get(o.get("payment_type") or "", "—"),
+            fmt_date(o["payment_date"]) if o.get("payment_date") else "—",
             o.get("plate","") or "—",
             _SVC_STATUS_RU.get(o.get("status") or "active", "Активен"),
             (o.get("notes") or "").replace("\n", " "),
@@ -1593,7 +1597,7 @@ def _write_services_to_sheet(ws, orders):
         total_cell.alignment = Alignment(horizontal="center")
 
     ws.freeze_panes = "A2"
-    ws.auto_filter.ref = f"A1:M{max(len(orders),1)+1}"
+    ws.auto_filter.ref = f"A1:N{max(len(orders),1)+1}"
 
 
 def _build_services_excel(orders, sheet_title):
@@ -1622,7 +1626,7 @@ def _fetch_service_orders(cur, object_type=None):
         cur.execute("SELECT * FROM service_orders ORDER BY position, id")
     orders = [dict(r) for r in cur.fetchall()]
     for o in orders:
-        for f in ("service_date", "end_date"):
+        for f in ("service_date", "end_date", "payment_date"):
             if isinstance(o.get(f), date):
                 o[f] = o[f].isoformat()
     return orders
@@ -1704,9 +1708,12 @@ def export_excel_services_all():
 # ── Excel helpers ─────────────────────────────────────────
 
 BOOK_HEADERS = ["№","Коттеджи / Квартиры / Номера","Гость","Заезд","Выезд",
-                "Ночей","Гостей","Скидка (сом)","Доп. гости (сом)","Ранний/поздний (сом)","Сумма (сом)","Аванс (сом)","Остаток (сом)","Сумма ($)","Статус","Оплата","Заметки"]
-BOOK_WIDTHS  = [6,30,22,13,13,8,8,13,16,18,14,13,14,12,12,14,30]
-CENTER_COLS  = {1,6,7,8,9,10,11,12,13,14,16}
+                "Ночей","Гостей","Скидка (сом)","Доп. гости (сом)","Ранний/поздний (сом)",
+                "Сумма (сом)","Аванс (сом)","Дата аванса","Способ аванса",
+                "Остаток (сом)","Дата остатка","Способ остатка",
+                "Сумма ($)","Статус","Заметки"]
+BOOK_WIDTHS  = [6,30,22,13,13,8,8,13,16,18,14,13,13,14,14,13,14,12,12,30]
+CENTER_COLS  = {1,6,7,8,9,10,11,12,13,14,15,16,17,18}
 
 _PAYMENT_LABELS = {"cash": "💵 Наличный", "card": "💳 Безналичный", "": "—"}
 
@@ -1740,13 +1747,16 @@ def _booking_row(b, seq_num):
         b["nights"], b["guests"],
         f"-{discount}" if discount else "—",
         extra if extra else "—",
-        early if early else "—",               # Ранний/поздний (сомы)
-        round(_effective_total(b)),            # Сумма (сомы)
-        deposit if deposit else "—",           # Аванс (сомы)
-        "—" if b.get("status") == "cancelled" else balance,  # Остаток (сомы)
+        early if early else "—",
+        round(_effective_total(b)),            # Сумма (сом)
+        deposit if deposit else "—",           # Аванс (сом)
+        fmt_date(b["deposit_date"]) if b.get("deposit_date") else "—",           # Дата аванса
+        _PAYMENT_LABELS.get(b.get("deposit_payment_type") or "", "—"),           # Способ аванса
+        "—" if b.get("status") == "cancelled" else balance,                      # Остаток (сом)
+        fmt_date(b["balance_date"]) if b.get("balance_date") else "—",           # Дата остатка
+        _PAYMENT_LABELS.get(b.get("payment_type") or "", "—"),                   # Способ остатка
         _effective_usd(b),                     # Сумма ($)
         _STATUS_LABELS.get(b.get("status") or "active", "Активна"),
-        _PAYMENT_LABELS.get(b.get("payment_type") or "", "—"),  # Оплата
         (b.get("notes") or "").replace("\n", " "),
     ]
 
@@ -1789,8 +1799,8 @@ def _write_totals(ws, bookings, total_row):
     vals   = {1:"ИТОГО", 6:sum(b["nights"] for b in bookings),
               11:round(sum(_effective_total(b) for b in bookings)),
               12:round(sum((b.get("deposit_paid") or 0) for b in bookings)),
-              13:round(sum((b.get("balance") or 0) for b in bookings)),
-              14:round(sum(_effective_usd(b) for b in bookings))}
+              15:round(sum((b.get("balance") or 0) for b in bookings)),
+              18:round(sum(_effective_usd(b) for b in bookings))}
     for col in range(1, len(BOOK_HEADERS)+1):
         cell = ws.cell(row=total_row, column=col, value=vals.get(col))
         cell.font=bold; cell.fill=fill; cell.border=border
@@ -1824,7 +1834,7 @@ def export_excel():
     last = _write_rows(ws, all_bookings, start=2)
     if all_bookings: _write_totals(ws, all_bookings, last + 1)
     ws.freeze_panes = "A2"
-    ws.auto_filter.ref = f"A1:Q{max(last, 2)}"
+    ws.auto_filter.ref = f"A1:T{max(last, 2)}"
 
     # Дополнительные листы по типам объектов компании
     _BOOKING_TYPE_SHEETS = [
@@ -1843,7 +1853,7 @@ def export_excel():
         last2 = _write_rows(ws2, type_bookings, start=2)
         if type_bookings: _write_totals(ws2, type_bookings, last2 + 1)
         ws2.freeze_panes = "A2"
-        ws2.auto_filter.ref = f"A1:Q{max(last2, 2)}"
+        ws2.auto_filter.ref = f"A1:T{max(last2, 2)}"
 
     buf = io.BytesIO(); wb.save(buf); buf.seek(0)
     return send_file(buf,
@@ -1863,7 +1873,7 @@ def export_excel_cottage(cottage_id):
     cur.close(); conn.close()
 
     wb=Workbook(); ws=wb.active; ws.title=cottage["name"][:31]
-    ws.merge_cells("A1:Q1"); tc=ws["A1"]
+    ws.merge_cells("A1:T1"); tc=ws["A1"]
     tc.value=f"{cottage['name']}  |  до {cottage['capacity']} чел.  |  {int(cottage['price_per_day'])} сом/сутки"
     tc.font=Font(bold=True,size=12); tc.fill=PatternFill("solid",fgColor="EEF2FF")
     tc.alignment=Alignment(horizontal="left",vertical="center"); ws.row_dimensions[1].height=26
@@ -2035,11 +2045,11 @@ def export_excel_by_owner(owner_type):
     last = _write_rows(ws, all_bookings, start=2)
     if all_bookings: _write_totals(ws, all_bookings, last + 1)
     ws.freeze_panes = "A2"
-    ws.auto_filter.ref = f"A1:Q{last}"
+    ws.auto_filter.ref = f"A1:T{last}"
 
     for c in cottages:
         ws2 = wb.create_sheet(c["name"][:28])
-        ws2.merge_cells("A1:Q1"); tc = ws2["A1"]
+        ws2.merge_cells("A1:T1"); tc = ws2["A1"]
         tc.value = f"{c['name']}  |  до {c['capacity']} чел.  |  {int(c['price_per_day'] or 0)} сом/сутки"
         tc.font  = Font(bold=True, size=12, color="2C3E50")
         tc.fill  = PatternFill("solid", fgColor="EEF2FF")

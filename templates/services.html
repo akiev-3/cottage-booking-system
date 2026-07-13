@@ -5,9 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Услуги — Коттеджи</title>
 <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
 <link rel="manifest" href="/static/manifest.json">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#4f6ef7">
+<script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
 <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
 <style>
   .sel { width:100%;padding:10px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:0.9rem;background:var(--bg);color:var(--text); }
@@ -426,6 +428,13 @@
 <div id="toast" class="toast"></div>
 
 <script>
+const FP_RU = {
+  weekdays:{shorthand:["Вс","Пн","Вт","Ср","Чт","Пт","Сб"],longhand:["Воскресенье","Понедельник","Вторник","Среда","Четверг","Пятница","Суббота"]},
+  months:{shorthand:["Янв","Фев","Мар","Апр","Май","Июн","Июл","Авг","Сен","Окт","Ноя","Дек"],longhand:["Январь","Февраль","Март","Апрель","Май","Июнь","Июль","Август","Сентябрь","Октябрь","Ноябрь","Декабрь"]},
+  firstDayOfWeek:1, rangeSeparator:" — ", ordinal:function(){return"";}
+};
+if (typeof flatpickr !== 'undefined') flatpickr.localize(FP_RU);
+
 // Данные из бэкенда
 const CATALOG  = {{ catalog_json|safe }};
 const COTTAGES = {{ cottages|tojson }};

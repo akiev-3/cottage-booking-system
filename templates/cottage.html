@@ -147,7 +147,7 @@
             <td class="actions-col">
               <div class="row-actions">
                 <button class="btn btn-sm btn-outline" title="Изменить"
-                        onclick='editBooking({{ b.id }}, {{ {"guest_name": b.guest_name, "check_in": b.check_in, "check_out": b.check_out, "guests": b.guests, "discount": b.discount, "deposit_paid": b.deposit_paid, "extra_per_night": b.extra_per_night, "early_checkin": b.early_checkin, "late_checkout": b.late_checkout, "payment_type": b.payment_type, "notes": b.notes}|tojson }})'>✏️</button>
+                        onclick='editBooking({{ b.id }}, {{ {"guest_name": b.guest_name, "check_in": b.check_in, "check_out": b.check_out, "guests": b.guests, "nights": b.nights, "discount": b.discount, "deposit_paid": b.deposit_paid, "deposit_date": b.deposit_date, "deposit_payment_type": b.deposit_payment_type, "balance_date": b.balance_date, "extra_per_night": b.extra_per_night, "early_checkin": b.early_checkin, "late_checkout": b.late_checkout, "early_late_fee": b.early_late_fee, "total_before_discount": b.total_before_discount, "payment_type": b.payment_type, "notes": b.notes}|tojson }})'>✏️</button>
                 {% if b.status != 'cancelled' %}
                 <button class="btn btn-sm btn-outline" title="Перенести в другой объект"
                         onclick='openTransferModal({{ b.id }}, {{ {"guest_name": b.guest_name, "check_in": b.check_in, "check_out": b.check_out, "nights": b.nights, "total": b.total, "discount": b.discount}|tojson }})'>🔀</button>

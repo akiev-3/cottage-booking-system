@@ -1009,9 +1009,19 @@ def update_booking(booking_id):
     else:
         early_checkin = bool(existing.get("early_checkin"))
         late_checkout = bool(existing.get("late_checkout"))
-    _half          = round((cottage["price_per_day"] or 0) / 2)
+    # Используем цену из самой брони, а не текущую цену объекта —
+    # чтобы редактирование (например, только дат оплаты) не меняло сумму.
+    _old_nights = int(existing.get("nights") or 0)
+    _old_epn    = float(existing.get("extra_per_night") or 0)
+    _old_elf    = float(existing.get("early_late_fee") or 0)
+    _old_tbd    = float(existing.get("total_before_discount") or 0)
+    if _old_nights > 0:
+        orig_price = (_old_tbd - _old_epn * _old_nights - _old_elf) / _old_nights
+    else:
+        orig_price = float(cottage["price_per_day"] or 0)
+    _half          = round(orig_price / 2)
     early_late_fee = _half * (int(early_checkin) + int(late_checkout))
-    total_before   = nights * cottage["price_per_day"] + extra_per_night * nights + early_late_fee  # сомы
+    total_before   = nights * orig_price + extra_per_night * nights + early_late_fee  # сомы
     discount        = max(0, float(body.get("discount") if body.get("discount") is not None else existing["discount"] or 0))  # сомы
     total           = round(max(0, total_before - discount))               # сомы
     rate            = float(existing["rate"] or get_rate(cur))   # курс для пересчёта в $

@@ -1015,8 +1015,9 @@ def update_booking(booking_id):
     _old_epn    = float(existing.get("extra_per_night") or 0)
     _old_elf    = float(existing.get("early_late_fee") or 0)
     _old_tbd    = float(existing.get("total_before_discount") or 0)
-    if _old_nights > 0:
-        orig_price = (_old_tbd - _old_epn * _old_nights - _old_elf) / _old_nights
+    if _old_nights > 0 and _old_tbd > 0:
+        _derived = (_old_tbd - _old_epn * _old_nights - _old_elf) / _old_nights
+        orig_price = _derived if _derived > 0 else float(cottage["price_per_day"] or 0)
     else:
         orig_price = float(cottage["price_per_day"] or 0)
     _half          = round(orig_price / 2)

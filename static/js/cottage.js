@@ -116,6 +116,7 @@ function addAnotherBooking() {
 }
 
 let fpCheckin = null, fpCheckout = null;
+let _editPrice = null; // исходная цена/ночь для режима редактирования; null = новая бронь
 function initCalendars(allowPast) {
   const disableIn  = occupiedNights(activeRanges());
   // Для выезда не блокируем первый день соседней брони — выезд в день чужого заезда допустим
@@ -163,6 +164,7 @@ function openCreateBooking() {
   if (sp) sp.style.display = 'none';
 
   excludeRange = null;
+  _editPrice = null;
   document.getElementById('form-booking').reset();
   document.getElementById('booking-id').value = '';
   document.getElementById('booking-modal-title').textContent = 'Новая бронь';
@@ -207,6 +209,13 @@ function openCreateBooking() {
 // Открыть форму редактирования
 function editBooking(id, b) {
   excludeRange = { from: b.check_in, to: b.check_out };
+  // Восстанавливаем исходную цену из сохранённых данных, чтобы preview не пересчитывался по текущей цене
+  const _on = b.nights || 0;
+  const _epn = b.extra_per_night || 0;
+  const _elf = b.early_late_fee || 0;
+  const _tbd = b.total_before_discount || 0;
+  const _derived = (_on > 0 && _tbd > 0) ? (_tbd - _epn * _on - _elf) / _on : 0;
+  _editPrice = _derived > 0 ? _derived : null;
   document.getElementById('booking-id').value         = id;
   document.getElementById('booking-modal-title').textContent = 'Редактировать бронь';
   document.getElementById('booking-submit-btn').textContent  = 'Сохранить';
@@ -254,8 +263,9 @@ function calcTotal() {
   const extraTotal  = extraNight * nights;
   const earlyChk    = document.getElementById('booking-early-checkin').checked;
   const lateChk     = document.getElementById('booking-late-checkout').checked;
-  const earlyLate   = Math.round(PRICE_PER_DAY / 2) * ((earlyChk ? 1 : 0) + (lateChk ? 1 : 0));
-  const totalBefore = nights * PRICE_PER_DAY + extraTotal + earlyLate;  // сомы
+  const pricePerNight = _editPrice !== null ? _editPrice : PRICE_PER_DAY;
+  const earlyLate   = Math.round(pricePerNight / 2) * ((earlyChk ? 1 : 0) + (lateChk ? 1 : 0));
+  const totalBefore = nights * pricePerNight + extraTotal + earlyLate;  // сомы
   const totalSom    = Math.max(0, totalBefore - discount);      // сомы
   const totalUsd    = RATE ? Math.round(totalSom / RATE) : 0;   // $ по глобальному курсу
   document.getElementById('total-usd').textContent    = `${totalSom.toLocaleString('ru-RU')} сом`;

@@ -166,7 +166,10 @@ def init_db():
     cur.execute("ALTER TABLE bookings ADD COLUMN IF NOT EXISTS early_late_fee  FLOAT   DEFAULT 0")
     cur.execute("ALTER TABLE bookings ADD COLUMN IF NOT EXISTS early_checkin   BOOLEAN DEFAULT FALSE")
     cur.execute("ALTER TABLE bookings ADD COLUMN IF NOT EXISTS late_checkout   BOOLEAN DEFAULT FALSE")
-    cur.execute("ALTER TABLE bookings ADD COLUMN IF NOT EXISTS payment_type    VARCHAR(20) DEFAULT ''")
+    cur.execute("ALTER TABLE bookings ADD COLUMN IF NOT EXISTS payment_type          VARCHAR(20) DEFAULT ''")
+    cur.execute("ALTER TABLE bookings ADD COLUMN IF NOT EXISTS deposit_date          DATE DEFAULT NULL")
+    cur.execute("ALTER TABLE bookings ADD COLUMN IF NOT EXISTS deposit_payment_type  VARCHAR(20) DEFAULT ''")
+    cur.execute("ALTER TABLE bookings ADD COLUMN IF NOT EXISTS balance_date          DATE DEFAULT NULL")
     # Старые брони с единой услугой «ранний/поздний» → помечаем как ранний заезд
     cur.execute("UPDATE bookings SET early_checkin = TRUE WHERE early_late_fee > 0 AND early_checkin = FALSE AND late_checkout = FALSE")
 
@@ -310,15 +313,18 @@ def fmt_date(iso) -> str:
 def serialize_booking(row) -> dict:
     """Конвертирует date-объекты PostgreSQL в строки ISO."""
     b = dict(row)
-    for field in ("check_in", "check_out"):
+    for field in ("check_in", "check_out", "deposit_date", "balance_date"):
         if isinstance(b.get(field), date):
             b[field] = b[field].isoformat()
-    b["deposit_paid"]    = float(b.get("deposit_paid") or 0)
-    b["extra_per_night"] = float(b.get("extra_per_night") or 0)
-    b["early_late_fee"]  = float(b.get("early_late_fee") or 0)
-    b["early_checkin"]   = bool(b.get("early_checkin"))
-    b["late_checkout"]   = bool(b.get("late_checkout"))
-    b["payment_type"]    = b.get("payment_type") or ""
+        elif b.get(field) is None:
+            b[field] = None
+    b["deposit_paid"]         = float(b.get("deposit_paid") or 0)
+    b["extra_per_night"]      = float(b.get("extra_per_night") or 0)
+    b["early_late_fee"]       = float(b.get("early_late_fee") or 0)
+    b["early_checkin"]        = bool(b.get("early_checkin"))
+    b["late_checkout"]        = bool(b.get("late_checkout"))
+    b["payment_type"]         = b.get("payment_type") or ""
+    b["deposit_payment_type"] = b.get("deposit_payment_type") or ""
     b["status"]          = b.get("status") or "active"
     # При отмене брони остаток = 0 (аванс не возвращается, но больше ничего не взимается)
     if b["status"] == "cancelled":
@@ -914,13 +920,17 @@ def create_booking():
             (cottage_id, cottage_name, guest_name, guests,
              check_in, check_out, nights,
              discount, total_before_discount, total, rate, total_som, notes, deposit_paid, extra_per_night,
-             early_late_fee, early_checkin, late_checkout, payment_type)
-        VALUES (%s,%s,%s,%s, %s,%s,%s, %s,%s,%s,%s,%s,%s,%s,%s, %s,%s,%s,%s)
+             early_late_fee, early_checkin, late_checkout, payment_type,
+             deposit_date, deposit_payment_type, balance_date)
+        VALUES (%s,%s,%s,%s, %s,%s,%s, %s,%s,%s,%s,%s,%s,%s,%s, %s,%s,%s,%s, %s,%s,%s)
         RETURNING *
     """, (cottage_id, cottage["name"], body.get("guest_name", ""), guests,
           ci, co, nights,
           discount, total_before, total, rate, total_som, body.get("notes", ""), deposit_paid, extra_per_night,
-          early_late_fee, early_checkin, late_checkout, (body.get("payment_type") or "")))
+          early_late_fee, early_checkin, late_checkout, (body.get("payment_type") or ""),
+          body.get("deposit_date") or None,
+          body.get("deposit_payment_type") or "",
+          body.get("balance_date") or None))
     booking = dict(cur.fetchone())
     conn.commit(); cur.close(); conn.close()
 
@@ -1013,7 +1023,8 @@ def update_booking(booking_id):
                             check_in=%s, check_out=%s, nights=%s, discount=%s,
                             total_before_discount=%s, total=%s, rate=%s, total_som=%s,
                             notes=%s, deposit_paid=%s, extra_per_night=%s,
-                            early_late_fee=%s, early_checkin=%s, late_checkout=%s, payment_type=%s
+                            early_late_fee=%s, early_checkin=%s, late_checkout=%s, payment_type=%s,
+                            deposit_date=%s, deposit_payment_type=%s, balance_date=%s
         WHERE id=%s RETURNING *
     """, (cottage_id, cottage["name"],
           body.get("guest_name", existing["guest_name"]), guests,
@@ -1021,6 +1032,9 @@ def update_booking(booking_id):
           body.get("notes", existing["notes"]), deposit_paid, extra_per_night,
           early_late_fee, early_checkin, late_checkout,
           (body.get("payment_type") if "payment_type" in body else (existing.get("payment_type") or "")),
+          body.get("deposit_date") if "deposit_date" in body else existing.get("deposit_date"),
+          body.get("deposit_payment_type") if "deposit_payment_type" in body else (existing.get("deposit_payment_type") or ""),
+          body.get("balance_date") if "balance_date" in body else existing.get("balance_date"),
           booking_id))
     booking = dict(cur.fetchone())
     conn.commit(); cur.close(); conn.close()

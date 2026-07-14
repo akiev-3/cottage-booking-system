@@ -1151,7 +1151,7 @@ def create_booking():
     cur.execute("""
         SELECT id, check_in, check_out FROM bookings
         WHERE cottage_id = %s AND check_in < %s
-          AND (check_out + CASE WHEN late_checkout THEN 1 ELSE 0 END) > %s
+          AND (check_out + CASE WHEN late_checkout THEN 1 ELSE 0 END) >= %s
           AND status != 'cancelled'
     """, (cottage_id, co_eff, ci))
     conflict = cur.fetchone()

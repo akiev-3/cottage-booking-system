@@ -52,7 +52,7 @@ function rangeOverlaps(ci, co) {
   const a1 = new Date(ci), a2 = new Date(co);
   return activeRanges().some(r => {
     const b1 = new Date(r.from), b2 = new Date(r.to);
-    return a1 < b2 && a2 > b1;
+    return a1 <= b2 && a2 > b1;  // a1<=b2: день выезда тоже считается занятым
   });
 }
 function showBusyHint() {
@@ -118,7 +118,7 @@ function addAnotherBooking() {
 let fpCheckin = null, fpCheckout = null;
 let _editPrice = null; // исходная цена/ночь для режима редактирования; null = новая бронь
 function initCalendars(allowPast) {
-  const disableIn  = occupiedNights(activeRanges());
+  const disableIn  = activeRanges();  // включает день выезда — на него нельзя заезжать
   // Для выезда не блокируем первый день соседней брони — выезд в день чужого заезда допустим
   const disableOut = activeRanges().map(r => {
     const from = new Date(r.from + 'T00:00:00'); from.setDate(from.getDate() + 1);

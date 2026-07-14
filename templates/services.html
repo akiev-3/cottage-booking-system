@@ -289,6 +289,7 @@
       <button class="close-btn" onclick="closeModal('modal-order')">✕</button>
     </div>
     <form id="form-order" onsubmit="submitOrder(event)" novalidate>
+      <div class="modal-body">
       <input type="hidden" id="order-id" value="">
 
       <!-- Шаг 1: выбор типа объекта -->
@@ -377,6 +378,7 @@
         <span>Итого: <strong id="order-total"></strong></span>
         <span class="nights-label" id="order-qty-label"></span>
       </div>
+      </div><!-- /.modal-body -->
       <div class="modal-footer">
         <button type="button" class="btn btn-outline" onclick="closeModal('modal-order')">Отмена</button>
         <button type="submit" class="btn btn-success">Сохранить заказ</button>
@@ -393,6 +395,7 @@
       <button class="close-btn" onclick="closeModal('modal-add-service')">✕</button>
     </div>
     <form id="form-add-service" onsubmit="submitAddService(event)">
+      <div class="modal-body">
       <input type="hidden" id="new-svc-owner">
       <input type="hidden" id="new-svc-id">
       <div class="form-group">
@@ -417,6 +420,7 @@
         <label>Описание</label>
         <textarea id="new-svc-desc" rows="2" placeholder="Дополнительно (необязательно)"></textarea>
       </div>
+      </div><!-- /.modal-body -->
       <div class="modal-footer">
         <button type="button" class="btn btn-outline" onclick="closeModal('modal-add-service')">Отмена</button>
         <button type="submit" class="btn btn-primary" id="svc-submit-btn">Добавить</button>

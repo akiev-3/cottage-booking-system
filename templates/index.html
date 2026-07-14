@@ -210,6 +210,7 @@
       <button class="close-btn" onclick="closeModal('modal-add-cottage')">✕</button>
     </div>
     <form id="form-cottage" onsubmit="submitCottage(event)" novalidate>
+      <div class="modal-body">
       <input type="hidden" id="cottage-id" value="">
       <div class="form-group">
         <label>Название *</label>
@@ -283,6 +284,7 @@
         <label>Описание</label>
         <textarea id="cottage-description" placeholder="Описание..." rows="2"></textarea>
       </div>
+      </div><!-- /.modal-body -->
       <div class="modal-footer">
         <button type="button" class="btn btn-outline" onclick="closeModal('modal-add-cottage')">Отмена</button>
         <button type="submit" class="btn btn-primary">Сохранить</button>
@@ -299,6 +301,7 @@
       <button class="close-btn" onclick="closeModal('modal-booking')">✕</button>
     </div>
     <form id="form-booking" onsubmit="submitBooking(event)">
+      <div class="modal-body">
       <input type="hidden" id="booking-cottage-id">
       <input type="hidden" id="booking-max-guests">
       <div class="form-group">
@@ -387,6 +390,7 @@
         </div>
         <span class="nights-label" id="booking-nights"></span>
       </div>
+      </div><!-- /.modal-body -->
       <div class="modal-footer">
         <button type="button" class="btn btn-outline" onclick="closeModal('modal-booking')">Отмена</button>
         <button type="submit" class="btn btn-success">Забронировать</button>

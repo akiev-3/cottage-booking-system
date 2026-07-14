@@ -544,11 +544,14 @@ def report_tax_data():
         })
         d += timedelta(days=1)
 
+    # Гостей считаем по уникальным броням (не сумма по дням, иначе один гость = N ночей)
+    total_guests  = sum(b.get("guests") or 0 for b in bookings)
+    total_revenue = sum(row["revenue"] for row in days)
     return jsonify({
         "days":          days,
-        "total_guests":  sum(row["guests"]  for row in days),
-        "total_revenue": sum(row["revenue"] for row in days),
-        "total_nights":  sum(row["count"]   for row in days),
+        "total_guests":  total_guests,
+        "total_revenue": total_revenue,
+        "total_nights":  sum(row["count"] for row in days),
     })
 
 
@@ -592,7 +595,8 @@ def report_tax_excel():
         d += timedelta(days=1)
 
     n = len(days_data)
-    total_guests  = sum(r["guests"]  for r in days_data)
+    # Гостей: каждая бронь считается один раз, не per-day
+    total_guests  = sum(b.get("guests") or 0 for b in bookings)
     total_revenue = sum(r["revenue"] for r in days_data)
 
     # ── Разметка колонок: A=отступ, B..+2n=дни, +2=Итого, +1=Примечание ──

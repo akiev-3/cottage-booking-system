@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Налоговый отчёт</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+<script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+<style>
+  .report-main { max-width: 860px; margin: 32px auto; padding: 0 16px; }
+
+  .report-controls {
+    background: var(--card); border-radius: 12px; padding: 20px 24px;
+    box-shadow: var(--shadow); margin-bottom: 28px;
+  }
+  .report-controls h2 { margin: 0 0 16px; font-size: 1rem; color: var(--muted); font-weight: 600; }
+  .report-row { display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; }
+  .report-row .form-group { margin: 0; }
+  .report-row .form-label { font-size: 0.82rem; color: var(--muted); margin-bottom: 4px; display: block; }
+  .report-quick { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
+  .quick-btn { padding: 6px 14px; border: 1.5px solid var(--border); border-radius: 8px;
+               background: var(--bg); color: var(--text); cursor: pointer; font-size: 0.84rem;
+               transition: all 0.15s; }
+  .quick-btn:hover { border-color: var(--primary); color: var(--primary); background: #f0f3ff; }
+
+  .report-table-wrap { background: var(--card); border-radius: 12px; box-shadow: var(--shadow); overflow: hidden; }
+  .report-table { width: 100%; border-collapse: collapse; }
+  .report-table th {
+    background: #4f6ef7; color: #fff; font-size: 0.82rem; font-weight: 700;
+    padding: 11px 14px; text-align: center; white-space: nowrap;
+  }
+  .report-table th:first-child { text-align: left; }
+  .report-table td { padding: 10px 14px; border-bottom: 1px solid var(--border);
+                     font-size: 0.9rem; }
+  .report-table td:not(:first-child):not(:nth-child(2)) { text-align: center; }
+  .report-table tr:last-child td { border-bottom: none; }
+  .report-table tr.weekend td { background: #fff8f0; }
+  @media (prefers-color-scheme: dark) { .report-table tr.weekend td { background: #2a1f0e; } }
+  .report-table tr.total-row td {
+    font-weight: 700; background: #eef2ff; font-size: 0.92rem; border-top: 2px solid #4f6ef7;
+  }
+  @media (prefers-color-scheme: dark) { .report-table tr.total-row td { background: #1e2240; } }
+  .report-table tr:hover:not(.total-row) td { background: var(--row-hover, #f5f7ff); }
+
+  .report-actions { display: flex; gap: 12px; align-items: center; margin-bottom: 20px; flex-wrap: wrap; }
+  .report-period-label { font-size: 0.9rem; color: var(--muted); }
+  .report-empty { text-align: center; padding: 40px 20px; color: var(--muted); font-size: 0.95rem; }
+
+  .day-name { color: var(--muted); font-size: 0.8rem; display: block; }
+  .revenue-cell { font-weight: 600; color: #2563eb; }
+  @media (prefers-color-scheme: dark) { .revenue-cell { color: #7aadff; } }
+
+  .note { font-size: 0.8rem; color: var(--muted); margin-top: 10px; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>📋 Налоговый отчёт</h1>
+  <div class="header-right">
+    <a href="/" class="btn btn-outline">← Объекты</a>
+    <a href="/dashboard" class="btn btn-outline">📊 Оперативка</a>
+    <a href="/logout" class="btn btn-outline">Выйти</a>
+  </div>
+</header>
+
+<main class="report-main">
+
+  <!-- Панель выбора периода -->
+  <div class="report-controls">
+    <h2>Выберите период</h2>
+    <div class="report-row">
+      <div class="form-group">
+        <label class="form-label">С</label>
+        <input type="text" id="report-start" class="form-control" style="width:150px" placeholder="дд/мм/гг">
+      </div>
+      <div class="form-group">
+        <label class="form-label">По</label>
+        <input type="text" id="report-end" class="form-control" style="width:150px" placeholder="дд/мм/гг">
+      </div>
+      <button class="btn btn-primary" onclick="loadReport()">Сформировать</button>
+    </div>
+    <div class="report-quick">
+      <button class="quick-btn" onclick="setWeek(0)">Текущая неделя</button>
+      <button class="quick-btn" onclick="setWeek(-1)">Прошлая неделя</button>
+      <button class="quick-btn" onclick="setWeek(-2)">2 недели назад</button>
+      <button class="quick-btn" onclick="setMonth(0)">Текущий месяц</button>
+      <button class="quick-btn" onclick="setMonth(-1)">Прошлый месяц</button>
+    </div>
+    <p class="note">* Не учитываются: бесплатные брони, объекты собственников, сотрудники (цена 0). Выручка считается пропорционально: сумма брони ÷ кол-во ночей × 1 ночь.</p>
+  </div>
+
+  <!-- Результат -->
+  <div id="report-result"></div>
+
+</main>
+
+<div id="toast" class="toast"></div>
+
+<script>
+const TODAY = '{{ today }}';
+
+const FP_RU = {
+  weekdays:{shorthand:['Вс','Пн','Вт','Ср','Чт','Пт','Сб'],longhand:['Воскресенье','Понедельник','Вторник','Среда','Четверг','Пятница','Суббота']},
+  months:{shorthand:['Янв','Фев','Мар','Апр','Май','Июн','Июл','Авг','Сен','Окт','Ноя','Дек'],longhand:['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь']},
+  firstDayOfWeek:1, rangeSeparator:' — ', ordinal:function(){return'';}
+};
+flatpickr.localize(FP_RU);
+
+const RU_MONTHS = ['января','февраля','марта','апреля','мая','июня','июля','августа','сентября','октября','ноября','декабря'];
+
+let fpStart = flatpickr('#report-start', {dateFormat:'Y-m-d', altInput:true, altFormat:'d/m/Y', locale:FP_RU});
+let fpEnd   = flatpickr('#report-end',   {dateFormat:'Y-m-d', altInput:true, altFormat:'d/m/Y', locale:FP_RU});
+
+function isoToDisplay(iso) {
+  if (!iso) return '—';
+  const [y,m,d] = iso.split('-');
+  return `${parseInt(d)} ${RU_MONTHS[parseInt(m)-1]} ${y}`;
+}
+
+function getMonday(d) {
+  const day = new Date(d);
+  const diff = (day.getDay() + 6) % 7; // Mon=0
+  day.setDate(day.getDate() - diff);
+  return day;
+}
+
+function toISO(d) { return d.toISOString().slice(0,10); }
+
+function setWeek(offset) {
+  const monday = getMonday(new Date(TODAY));
+  monday.setDate(monday.getDate() + offset * 7);
+  const sunday = new Date(monday); sunday.setDate(sunday.getDate() + 6);
+  fpStart.setDate(toISO(monday), false);
+  fpEnd.setDate(toISO(sunday), false);
+  loadReport();
+}
+
+function setMonth(offset) {
+  const today = new Date(TODAY);
+  const y = today.getFullYear(), m = today.getMonth() + offset;
+  const first = new Date(y, m, 1);
+  const last  = new Date(y, m + 1, 0);
+  fpStart.setDate(toISO(first), false);
+  fpEnd.setDate(toISO(last), false);
+  loadReport();
+}
+
+function showToast(msg, type='') {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.className = 'toast ' + type;
+  void t.offsetWidth; t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 3200);
+}
+
+async function loadReport() {
+  const start = document.getElementById('report-start').value;
+  const end   = document.getElementById('report-end').value;
+  if (!start || !end) { showToast('Выберите период', 'error'); return; }
+
+  const res  = await fetch(`/report/tax/data?start=${start}&end=${end}`);
+  const data = await res.json();
+  if (!res.ok) { showToast(data.error || 'Ошибка', 'error'); return; }
+
+  renderReport(data, start, end);
+}
+
+function renderReport(data, start, end) {
+  const { days, total_guests, total_revenue } = data;
+  const el = document.getElementById('report-result');
+
+  if (!days.length) {
+    el.innerHTML = '<div class="report-empty">Нет данных за выбранный период</div>';
+    return;
+  }
+
+  const hasData = days.some(d => d.guests > 0);
+
+  let rows = days.map(d => {
+    const weekend = d.weekday === 'Сб' || d.weekday === 'Вс';
+    const [y,mo,dy] = d.date.split('-');
+    const dateStr = `${parseInt(dy)} ${RU_MONTHS[parseInt(mo)-1]}`;
+    return `<tr class="${weekend ? 'weekend' : ''}">
+      <td><strong>${d.weekday_long}</strong></td>
+      <td>${dateStr}</td>
+      <td>${d.count || '—'}</td>
+      <td>${d.guests || '—'}</td>
+      <td class="revenue-cell">${d.revenue ? d.revenue.toLocaleString('ru-RU') + ' сом' : '—'}</td>
+    </tr>`;
+  }).join('');
+
+  el.innerHTML = `
+    <div class="report-actions">
+      <span class="report-period-label">Период: <strong>${isoToDisplay(start)} — ${isoToDisplay(end)}</strong></span>
+      <a href="/report/tax/excel?start=${start}&end=${end}" class="btn btn-outline">⬇️ Скачать Excel</a>
+    </div>
+    <div class="report-table-wrap">
+      <table class="report-table">
+        <thead>
+          <tr>
+            <th>День</th>
+            <th>Дата</th>
+            <th>Броней</th>
+            <th>Гостей</th>
+            <th>Выручка</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows}
+          <tr class="total-row">
+            <td colspan="2">ИТОГО</td>
+            <td>—</td>
+            <td>${total_guests.toLocaleString('ru-RU')}</td>
+            <td class="revenue-cell">${total_revenue.toLocaleString('ru-RU')} сом</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>`;
+}
+
+// Загружаем текущую неделю по умолчанию
+setWeek(0);
+</script>
+</body>
+</html>

@@ -471,6 +471,162 @@ def dashboard_availability():
     return jsonify({"cottages": cottages, "rate": rate})
 
 
+_WEEKDAY_SHORT = ["Пн","Вт","Ср","Чт","Пт","Сб","Вс"]
+_WEEKDAY_LONG  = ["Понедельник","Вторник","Среда","Четверг","Пятница","Суббота","Воскресенье"]
+
+
+@app.route("/report/tax")
+@require_perm("bookings_view")
+def report_tax():
+    return render_template("report_tax.html", today=date.today().isoformat())
+
+
+@app.route("/report/tax/data")
+@require_perm("bookings_view")
+def report_tax_data():
+    start_str = request.args.get("start", "")
+    end_str   = request.args.get("end", "")
+    try:
+        start_d = date.fromisoformat(start_str)
+        end_d   = date.fromisoformat(end_str)
+    except ValueError:
+        return jsonify({"error": "Неверный формат даты"}), 400
+    if start_d > end_d:
+        return jsonify({"error": "Начало позже конца"}), 400
+    if (end_d - start_d).days > 90:
+        return jsonify({"error": "Период не более 90 дней"}), 400
+
+    conn = get_db(); cur = conn.cursor()
+    cur.execute("""
+        SELECT b.guest_name, b.guests, b.check_in::text, b.check_out::text,
+               b.nights, b.total, b.cottage_name
+        FROM bookings b
+        JOIN cottages c ON c.id = b.cottage_id
+        WHERE b.status   != 'cancelled'
+          AND b.total     > 0
+          AND b.check_in  < %s
+          AND b.check_out > %s
+          AND c.owner_type != 'Собственник'
+          AND COALESCE(c.price_per_day, 0) > 0
+    """, (end_d + timedelta(days=1), start_d))
+    bookings = [dict(r) for r in cur.fetchall()]
+    cur.close(); conn.close()
+
+    days = []
+    d = start_d
+    while d <= end_d:
+        d_str  = d.isoformat()
+        active = [b for b in bookings if b["check_in"] <= d_str < b["check_out"]]
+        nights_total = sum(b.get("nights") or 1 for b in active)
+        guests  = sum(b.get("guests") or 0 for b in active)
+        revenue = sum(round((b.get("total") or 0) / max(b.get("nights") or 1, 1)) for b in active)
+        days.append({
+            "date":    d_str,
+            "weekday": _WEEKDAY_SHORT[d.weekday()],
+            "weekday_long": _WEEKDAY_LONG[d.weekday()],
+            "guests":  guests,
+            "revenue": revenue,
+            "count":   len(active),
+        })
+        d += timedelta(days=1)
+
+    return jsonify({
+        "days":          days,
+        "total_guests":  sum(row["guests"]  for row in days),
+        "total_revenue": sum(row["revenue"] for row in days),
+        "total_nights":  sum(row["count"]   for row in days),
+    })
+
+
+@app.route("/report/tax/excel")
+@require_perm("excel")
+def report_tax_excel():
+    start_str = request.args.get("start", "")
+    end_str   = request.args.get("end", "")
+    try:
+        start_d = date.fromisoformat(start_str)
+        end_d   = date.fromisoformat(end_str)
+    except ValueError:
+        return jsonify({"error": "Неверный формат даты"}), 400
+
+    conn = get_db(); cur = conn.cursor()
+    cur.execute("""
+        SELECT b.guest_name, b.guests, b.check_in::text, b.check_out::text,
+               b.nights, b.total, b.cottage_name
+        FROM bookings b
+        JOIN cottages c ON c.id = b.cottage_id
+        WHERE b.status   != 'cancelled'
+          AND b.total     > 0
+          AND b.check_in  < %s
+          AND b.check_out > %s
+          AND c.owner_type != 'Собственник'
+          AND COALESCE(c.price_per_day, 0) > 0
+    """, (end_d + timedelta(days=1), start_d))
+    bookings = [dict(r) for r in cur.fetchall()]
+    cur.close(); conn.close()
+
+    wb = Workbook(); ws = wb.active
+    ws.title = "Налоговый отчёт"
+    border = _thin_border()
+    hfill  = _header_fill("4F6EF7")
+    hfont  = Font(bold=True, color="FFFFFF")
+    center = Alignment(horizontal="center", vertical="center")
+    bold   = Font(bold=True)
+
+    # Заголовок
+    ws.merge_cells("A1:E1")
+    tc = ws["A1"]
+    tc.value = f"Налоговый отчёт: {fmt_date(start_str)} — {fmt_date(end_str)}"
+    tc.font  = Font(bold=True, size=13)
+    tc.fill  = PatternFill("solid", fgColor="EEF2FF")
+    tc.alignment = Alignment(horizontal="left", vertical="center")
+    ws.row_dimensions[1].height = 26
+
+    headers = ["День", "Дата", "Броней", "Гостей", "Выручка (сом)"]
+    widths  = [14, 14, 10, 10, 18]
+    for col, (h, w) in enumerate(zip(headers, widths), 1):
+        cell = ws.cell(row=2, column=col, value=h)
+        cell.font = hfont; cell.fill = hfill
+        cell.alignment = center; cell.border = border
+        ws.column_dimensions[cell.column_letter].width = w
+    ws.row_dimensions[2].height = 22
+
+    d = start_d; row_i = 3
+    total_bookings = total_guests = total_revenue = 0
+    while d <= end_d:
+        d_str  = d.isoformat()
+        active  = [b for b in bookings if b["check_in"] <= d_str < b["check_out"]]
+        guests  = sum(b.get("guests") or 0 for b in active)
+        revenue = sum(round((b.get("total") or 0) / max(b.get("nights") or 1, 1)) for b in active)
+        is_weekend = d.weekday() >= 5
+        fill = PatternFill("solid", fgColor="FFF3E0" if is_weekend else "FFFFFF")
+        vals = [_WEEKDAY_LONG[d.weekday()], fmt_date(d_str), len(active), guests, revenue]
+        for col, val in enumerate(vals, 1):
+            cell = ws.cell(row=row_i, column=col, value=val)
+            cell.fill = fill; cell.border = border
+            if col >= 3:
+                cell.alignment = center
+        total_bookings += len(active); total_guests += guests; total_revenue += revenue
+        d += timedelta(days=1); row_i += 1
+
+    # Итого
+    tfill = PatternFill("solid", fgColor="EEF2FF")
+    for col, val in enumerate(["ИТОГО", "", total_bookings, total_guests, total_revenue], 1):
+        cell = ws.cell(row=row_i, column=col, value=val)
+        cell.font = bold; cell.fill = tfill; cell.border = border
+        if col >= 3:
+            cell.alignment = center
+
+    ws.freeze_panes = "A3"
+    ws.auto_filter.ref = f"A2:E{row_i - 1}"
+
+    buf = io.BytesIO(); wb.save(buf); buf.seek(0)
+    fname = f"nalogoviy_otchet_{start_str}_{end_str}.xlsx"
+    return send_file(buf,
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        as_attachment=True, download_name=fname)
+
+
 @app.route("/")
 @require_perm("bookings_view")
 def index():

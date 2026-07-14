@@ -7,6 +7,7 @@ import json
 from datetime import datetime, date, timedelta
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+from openpyxl.utils import get_column_letter
 import psycopg2
 import psycopg2.extras
 import random
@@ -471,6 +472,19 @@ def dashboard_availability():
     return jsonify({"cottages": cottages, "rate": rate})
 
 
+# ── Реквизиты компании для налогового отчёта ──────────────────────────────
+_TAX_ORG_NAME  = 'ОсОО "ДОСТУК, ДОСТЫК ДРУЖБА"'
+_TAX_INN       = "105199310051"
+_TAX_SIGNATORY = "Акиев Эльдар Эркинбекович"
+_TAX_PHONE     = "+996 701 000 201"
+
+_RU_MONTHS_GEN = ["января","февраля","марта","апреля","мая","июня",
+                  "июля","августа","сентября","октября","ноября","декабря"]
+
+def _fmt_ru_date(d):
+    """6 июля"""
+    return f"{d.day} {_RU_MONTHS_GEN[d.month - 1]}"
+
 _WEEKDAY_SHORT = ["Пн","Вт","Ср","Чт","Пт","Сб","Вс"]
 _WEEKDAY_LONG  = ["Понедельник","Вторник","Среда","Четверг","Пятница","Суббота","Воскресенье"]
 
@@ -551,8 +565,7 @@ def report_tax_excel():
 
     conn = get_db(); cur = conn.cursor()
     cur.execute("""
-        SELECT b.guest_name, b.guests, b.check_in::text, b.check_out::text,
-               b.nights, b.total, b.cottage_name
+        SELECT b.guests, b.check_in::text, b.check_out::text, b.nights, b.total
         FROM bookings b
         JOIN cottages c ON c.id = b.cottage_id
         WHERE b.status   != 'cancelled'
@@ -565,63 +578,151 @@ def report_tax_excel():
     bookings = [dict(r) for r in cur.fetchall()]
     cur.close(); conn.close()
 
-    wb = Workbook(); ws = wb.active
-    ws.title = "Налоговый отчёт"
-    border = _thin_border()
-    hfill  = _header_fill("4F6EF7")
-    hfont  = Font(bold=True, color="FFFFFF")
-    center = Alignment(horizontal="center", vertical="center")
-    bold   = Font(bold=True)
-
-    # Заголовок
-    ws.merge_cells("A1:E1")
-    tc = ws["A1"]
-    tc.value = f"Налоговый отчёт: {fmt_date(start_str)} — {fmt_date(end_str)}"
-    tc.font  = Font(bold=True, size=13)
-    tc.fill  = PatternFill("solid", fgColor="EEF2FF")
-    tc.alignment = Alignment(horizontal="left", vertical="center")
-    ws.row_dimensions[1].height = 26
-
-    headers = ["День", "Дата", "Броней", "Гостей", "Выручка (сом)"]
-    widths  = [14, 14, 10, 10, 18]
-    for col, (h, w) in enumerate(zip(headers, widths), 1):
-        cell = ws.cell(row=2, column=col, value=h)
-        cell.font = hfont; cell.fill = hfill
-        cell.alignment = center; cell.border = border
-        ws.column_dimensions[cell.column_letter].width = w
-    ws.row_dimensions[2].height = 22
-
-    d = start_d; row_i = 3
-    total_bookings = total_guests = total_revenue = 0
+    # ── Данные по дням ─────────────────────────────────────────
+    days_data = []
+    d = start_d
     while d <= end_d:
         d_str  = d.isoformat()
-        active  = [b for b in bookings if b["check_in"] <= d_str < b["check_out"]]
-        guests  = sum(b.get("guests") or 0 for b in active)
-        revenue = sum(round((b.get("total") or 0) / max(b.get("nights") or 1, 1)) for b in active)
-        is_weekend = d.weekday() >= 5
-        fill = PatternFill("solid", fgColor="FFF3E0" if is_weekend else "FFFFFF")
-        vals = [_WEEKDAY_LONG[d.weekday()], fmt_date(d_str), len(active), guests, revenue]
-        for col, val in enumerate(vals, 1):
-            cell = ws.cell(row=row_i, column=col, value=val)
-            cell.fill = fill; cell.border = border
-            if col >= 3:
-                cell.alignment = center
-        total_bookings += len(active); total_guests += guests; total_revenue += revenue
-        d += timedelta(days=1); row_i += 1
+        active = [b for b in bookings if b["check_in"] <= d_str < b["check_out"]]
+        days_data.append({
+            "date":    d,
+            "guests":  sum(b.get("guests") or 0 for b in active),
+            "revenue": sum(round((b.get("total") or 0) / max(b.get("nights") or 1, 1)) for b in active),
+        })
+        d += timedelta(days=1)
 
-    # Итого
-    tfill = PatternFill("solid", fgColor="EEF2FF")
-    for col, val in enumerate(["ИТОГО", "", total_bookings, total_guests, total_revenue], 1):
-        cell = ws.cell(row=row_i, column=col, value=val)
-        cell.font = bold; cell.fill = tfill; cell.border = border
-        if col >= 3:
-            cell.alignment = center
+    n = len(days_data)
+    total_guests  = sum(r["guests"]  for r in days_data)
+    total_revenue = sum(r["revenue"] for r in days_data)
 
-    ws.freeze_panes = "A3"
-    ws.auto_filter.ref = f"A2:E{row_i - 1}"
+    # ── Разметка колонок: A=отступ, B..+2n=дни, +2=Итого, +1=Примечание ──
+    # Col 1 (A): пустой отступ
+    # Col 2+2i, 2+2i+1: пара (Кол-во, Выручка) для дня i
+    # Col 2+2n, 2+2n+1: Итого
+    # Col 2+2n+2: Примечание
+    def col(i): return get_column_letter(i)   # 1-indexed → letter
+
+    last_data_col = 2 + 2*n + 1          # последняя колонка с данными
+    prim_col      = last_data_col + 1    # Примечание
+    total_cols    = prim_col
+
+    wb = Workbook(); ws = wb.active
+    ws.title = "Еженедельный свод"
+    border  = _thin_border()
+    center  = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    left    = Alignment(horizontal="left",   vertical="center")
+
+    # Ширины колонок
+    ws.column_dimensions["A"].width = 2
+    for i in range(n):
+        ws.column_dimensions[col(2 + i*2)].width     = 11  # Кол-во
+        ws.column_dimensions[col(2 + i*2 + 1)].width = 16  # Выручка
+    ws.column_dimensions[col(2 + n*2)].width     = 11
+    ws.column_dimensions[col(2 + n*2 + 1)].width = 16
+    ws.column_dimensions[col(prim_col)].width     = 18
+
+    # ── Строки 1-5: шапка ────────────────────────────────────
+    last_letter = col(total_cols)
+
+    def merge_row(row, text, font, align=None, height=18, fill=None):
+        ws.merge_cells(f"B{row}:{last_letter}{row}")
+        cell = ws[f"B{row}"]
+        cell.value = text; cell.font = font
+        cell.alignment = align or Alignment(horizontal="center", vertical="center")
+        if fill: cell.fill = fill
+        ws.row_dimensions[row].height = height
+
+    merge_row(1, _TAX_ORG_NAME,
+              Font(bold=True, size=12, name="Arial"),
+              height=22)
+    merge_row(2, "(Наименование хозяйствующего субъекта)",
+              Font(italic=True, size=9, name="Arial", color="888888"),
+              height=14)
+    merge_row(3, f"ИНН: {_TAX_INN}",
+              Font(size=10, name="Arial"),
+              height=16)
+    period_label = f"с {_fmt_ru_date(start_d)} по {_fmt_ru_date(end_d)} {end_d.year} года."
+    merge_row(4, period_label,
+              Font(size=10, name="Arial"),
+              height=16)
+    merge_row(5, "Количество отдыхающих за неделю, а также общая выручка за проживание по дням",
+              Font(bold=True, size=10, name="Arial"),
+              height=30)
+
+    # ── Строка 6: заголовки дат ──────────────────────────────
+    hfill_day  = PatternFill("solid", fgColor="D9E1F2")
+    hfill_итог = PatternFill("solid", fgColor="C6EFCE")
+    hfont = Font(bold=True, size=9, name="Arial")
+
+    for i, dd in enumerate(days_data):
+        cs = 2 + i*2; ce = cs + 1
+        ws.merge_cells(start_row=6, start_column=cs, end_row=6, end_column=ce)
+        cell = ws.cell(row=6, column=cs, value=_fmt_ru_date(dd["date"]))
+        cell.font = hfont; cell.fill = hfill_day
+        cell.alignment = center; cell.border = border
+
+    итог_cs = 2 + n*2; итог_ce = итог_cs + 1
+    ws.merge_cells(start_row=6, start_column=итог_cs, end_row=6, end_column=итог_ce)
+    cell = ws.cell(row=6, column=итог_cs, value="Итого")
+    cell.font = Font(bold=True, size=9, name="Arial")
+    cell.fill = hfill_итог; cell.alignment = center; cell.border = border
+
+    prim = ws.cell(row=6, column=prim_col, value="Примечание")
+    prim.font = hfont; prim.fill = hfill_day
+    prim.alignment = center; prim.border = border
+    ws.row_dimensions[6].height = 22
+
+    # ── Строка 7: подзаголовки ───────────────────────────────
+    sfill = PatternFill("solid", fgColor="EEF2FF")
+    sfont = Font(bold=True, size=8, name="Arial")
+    for i in range(n + 1):  # n дней + Итого
+        cs = 2 + i*2
+        for j, txt in enumerate(["Кол-во отд.", "Выручка за прожив."]):
+            cell = ws.cell(row=7, column=cs + j, value=txt)
+            cell.font = sfont; cell.fill = sfill
+            cell.alignment = center; cell.border = border
+    ws.row_dimensions[7].height = 32
+
+    # ── Строка 8: данные ─────────────────────────────────────
+    dfont = Font(size=10, name="Arial")
+    bfont = Font(bold=True, size=10, name="Arial")
+    gfill = PatternFill("solid", fgColor="E2EFDA")   # зелёный для Итого
+
+    for i, dd in enumerate(days_data):
+        cs = 2 + i*2
+        for j, val in enumerate([dd["guests"], dd["revenue"]]):
+            cell = ws.cell(row=8, column=cs + j, value=val)
+            cell.font = dfont; cell.alignment = center; cell.border = border
+            if j == 1: cell.number_format = '#,##0'
+
+    cell_g = ws.cell(row=8, column=итог_cs,     value=total_guests)
+    cell_r = ws.cell(row=8, column=итог_cs + 1, value=total_revenue)
+    for c_ in (cell_g, cell_r):
+        c_.font = bfont; c_.fill = gfill
+        c_.alignment = center; c_.border = border
+    cell_r.number_format = '#,##0'
+    ws.row_dimensions[8].height = 20
+
+    # ── Строки 9-11: подпись ─────────────────────────────────
+    ws.row_dimensions[9].height = 8
+    sign_date = date.today().strftime("%d.%m.%Y")
+    merge_row(10,
+              f"  {_TAX_SIGNATORY}                {_TAX_PHONE}          {sign_date}",
+              Font(size=10, name="Arial"),
+              align=left, height=20)
+    merge_row(11,
+              "( Ф.И.О. и подпись   представшего сведение,  контактные телефоны,  дата, печать)",
+              Font(italic=True, size=8, name="Arial", color="888888"),
+              height=14)
+
+    ws.print_area = f"A1:{last_letter}11"
+    ws.page_setup.orientation = "landscape"
+    ws.page_setup.fitToPage   = True
+    ws.page_setup.fitToWidth  = 1
+    ws.page_setup.fitToHeight = 1
 
     buf = io.BytesIO(); wb.save(buf); buf.seek(0)
-    fname = f"nalogoviy_otchet_{start_str}_{end_str}.xlsx"
+    fname = f"svod_{start_str}_{end_str}.xlsx"
     return send_file(buf,
         mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         as_attachment=True, download_name=fname)

@@ -48,10 +48,25 @@ function activeRanges() {
   // а не по точному диапазону (его конец «плавает» из-за позднего выезда).
   return BOOKED_RANGES.filter(r => r.from !== excludeRange.from);
 }
+// При редактировании: соседняя бронь, у которой выезд = наш заезд,
+// не должна блокировать наш заезд в календаре.
+function activeRangesForCheckin() {
+  if (!excludeRange) return activeRanges();
+  return activeRanges().map(r => {
+    if (r.to === excludeRange.from) {
+      const newTo = new Date(r.to + 'T00:00:00');
+      newTo.setDate(newTo.getDate() - 1);
+      return { from: r.from, to: isoDate(newTo) };
+    }
+    return r;
+  }).filter(r => r.from <= r.to);
+}
 function rangeOverlaps(ci, co) {
   const a1 = new Date(ci), a2 = new Date(co);
   return activeRanges().some(r => {
     const b1 = new Date(r.from), b2 = new Date(r.to);
+    // При редактировании: легаси-бронь, у которой выезд = наш заезд — не конфликт
+    if (excludeRange && r.to === ci) return false;
     return a1 <= b2 && a2 > b1;  // a1<=b2: день выезда тоже считается занятым
   });
 }
@@ -118,7 +133,7 @@ function addAnotherBooking() {
 let fpCheckin = null, fpCheckout = null;
 let _editPrice = null; // исходная цена/ночь для режима редактирования; null = новая бронь
 function initCalendars(allowPast) {
-  const disableIn  = activeRanges();  // включает день выезда — на него нельзя заезжать
+  const disableIn  = activeRangesForCheckin();  // включает день выезда; при редактировании клипает соседние
   // Для выезда не блокируем первый день соседней брони — выезд в день чужого заезда допустим
   const disableOut = activeRanges().map(r => {
     const from = new Date(r.from + 'T00:00:00'); from.setDate(from.getDate() + 1);

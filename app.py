@@ -1290,6 +1290,10 @@ def update_booking(booking_id):
     rate            = float(existing["rate"] or get_rate(cur))   # курс для пересчёта в $
     total_som       = total                # учёт ведётся в сомах
     deposit_paid    = max(0, float(body.get("deposit_paid") if body.get("deposit_paid") is not None else existing.get("deposit_paid") or 0))  # сомы
+    # Если после редактирования сумма выросла и появился остаток — сбрасываем 'paid' → 'active'
+    existing_status = existing.get("status") or "active"
+    new_balance     = round(max(0.0, total - deposit_paid), 2)
+    new_status      = "active" if (existing_status == "paid" and new_balance > 0) else existing_status
 
     cur.execute("""
         UPDATE bookings SET cottage_id=%s, cottage_name=%s, guest_name=%s, guests=%s,
@@ -1297,7 +1301,8 @@ def update_booking(booking_id):
                             total_before_discount=%s, total=%s, rate=%s, total_som=%s,
                             notes=%s, deposit_paid=%s, extra_per_night=%s,
                             early_late_fee=%s, early_checkin=%s, late_checkout=%s, payment_type=%s,
-                            deposit_date=%s, deposit_payment_type=%s, balance_date=%s
+                            deposit_date=%s, deposit_payment_type=%s, balance_date=%s,
+                            status=%s
         WHERE id=%s RETURNING *
     """, (cottage_id, cottage["name"],
           body.get("guest_name", existing["guest_name"]), guests,
@@ -1308,6 +1313,7 @@ def update_booking(booking_id):
           body.get("deposit_date") if "deposit_date" in body else existing.get("deposit_date"),
           body.get("deposit_payment_type") if "deposit_payment_type" in body else (existing.get("deposit_payment_type") or ""),
           body.get("balance_date") if "balance_date" in body else existing.get("balance_date"),
+          new_status,
           booking_id))
     booking = dict(cur.fetchone())
     conn.commit(); cur.close(); conn.close()

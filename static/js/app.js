@@ -483,7 +483,7 @@ function showBusyHint() {
 }
 
 function initBookingCalendars() {
-  const disableIn  = occupiedRanges;  // включает день выезда — на него нельзя заезжать
+  const disableIn  = occupiedNights(occupiedRanges);  // без позднего выезда — день выезда свободен для заезда
   const disableOut = occupiedRanges.map(r => {
     const from = new Date(r.from + 'T00:00:00'); from.setDate(from.getDate() + 1);
     const to   = new Date(r.to   + 'T00:00:00'); to.setDate(to.getDate() - 1);
@@ -558,7 +558,7 @@ function rangeOverlaps(ci, co) {
   const a1 = new Date(ci), a2 = new Date(co);
   return occupiedRanges.some(r => {
     const b1 = new Date(r.from), b2 = new Date(r.to);
-    return a1 <= b2 && a2 > b1;  // a1<=b2: день выезда тоже считается занятым
+    return a1 < b2 && a2 > b1;  // b2 = check_out или +1 при позднем выезде
   });
 }
 

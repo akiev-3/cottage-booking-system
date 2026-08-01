@@ -297,6 +297,15 @@ def init_db():
     cur.execute("CREATE INDEX IF NOT EXISTS idx_orders_position          ON service_orders (position)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_cottages_position        ON cottages (position)")
 
+    # Восстановить статусы, которые авто-выселение успело поставить как checked_out
+    cur.execute("""
+        UPDATE bookings SET status = CASE
+            WHEN COALESCE(deposit_paid,0) >= COALESCE(total,0) AND COALESCE(total,0) > 0 THEN 'paid'
+            ELSE 'active'
+        END
+        WHERE status = 'checked_out'
+    """)
+
     conn.commit()
     cur.close()
     conn.close()

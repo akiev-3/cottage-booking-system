@@ -460,7 +460,7 @@ def dashboard_availability():
         FROM bookings
         WHERE check_in < %s
           AND (check_out + CASE WHEN late_checkout THEN 1 ELSE 0 END) > %s
-          AND status != 'cancelled'
+          AND status NOT IN ('cancelled','checked_out')
         GROUP BY cottage_id
     """, (co, ci))
     occupied_map = {r["cottage_id"]: r["conflicts"] for r in cur.fetchall()}
@@ -740,7 +740,7 @@ def index():
     cur.execute("SELECT * FROM cottages ORDER BY position, id")
     cottages = [dict(r) for r in cur.fetchall()]
     # Счётчик активных (не прошедших и не отменённых) броней
-    cur.execute("SELECT cottage_id, COUNT(*) AS cnt FROM bookings WHERE check_out >= CURRENT_DATE AND status != 'cancelled' GROUP BY cottage_id")
+    cur.execute("SELECT cottage_id, COUNT(*) AS cnt FROM bookings WHERE check_out >= CURRENT_DATE AND status NOT IN ('cancelled','checked_out') GROUP BY cottage_id")
     counts = {r["cottage_id"]: r["cnt"] for r in cur.fetchall()}
     for c in cottages:
         c["bookings_count"] = counts.get(c["id"], 0)
@@ -776,7 +776,7 @@ def map_page():
     # Занятые сегодня объекты (есть активная бронь, покрывающая текущую дату)
     cur.execute("""
         SELECT DISTINCT cottage_id FROM bookings
-        WHERE status != 'cancelled' AND check_in <= CURRENT_DATE AND check_out > CURRENT_DATE
+        WHERE status NOT IN ('cancelled','checked_out') AND check_in <= CURRENT_DATE AND check_out > CURRENT_DATE
     """)
     occupied = {r["cottage_id"] for r in cur.fetchall()}
     cur.close(); conn.close()
@@ -1152,7 +1152,7 @@ def create_booking():
         SELECT id, check_in, check_out FROM bookings
         WHERE cottage_id = %s AND check_in < %s
           AND (check_out + CASE WHEN late_checkout THEN 1 ELSE 0 END) > %s
-          AND status != 'cancelled'
+          AND status NOT IN ('cancelled','checked_out')
     """, (cottage_id, co_eff, ci))
     conflict = cur.fetchone()
     if conflict:
@@ -1254,7 +1254,7 @@ def update_booking(booking_id):
         SELECT id, check_in, check_out FROM bookings
         WHERE cottage_id = %s AND id <> %s AND check_in < %s
           AND (check_out + CASE WHEN late_checkout THEN 1 ELSE 0 END) > %s
-          AND status != 'cancelled'
+          AND status NOT IN ('cancelled','checked_out')
     """, (cottage_id, booking_id, co_eff, ci))
     conflict = cur.fetchone()
     if conflict:
@@ -1326,7 +1326,7 @@ def update_booking(booking_id):
 @require_perm("bookings_edit")
 def update_booking_status(booking_id):
     new_status = (request.get_json(silent=True) or {}).get("status")
-    if new_status not in ("active", "cancelled", "paid"):
+    if new_status not in ("active", "cancelled", "paid", "checked_out"):
         return jsonify({"error": "Недопустимый статус"}), 400
     conn = get_db(); cur = conn.cursor()
     cur.execute("UPDATE bookings SET status=%s WHERE id=%s RETURNING *", (new_status, booking_id))
@@ -1364,7 +1364,7 @@ def cottage_availability(cottage_id):
         SELECT id FROM bookings
         WHERE cottage_id = %s AND check_in < %s
           AND (check_out + CASE WHEN late_checkout THEN 1 ELSE 0 END) > %s
-          AND status != 'cancelled'
+          AND status NOT IN ('cancelled','checked_out')
         LIMIT 1
     """, (cottage_id, co, ci))
     conflict = cur.fetchone()
@@ -1406,7 +1406,7 @@ def transfer_booking(booking_id):
         SELECT id, check_in, check_out FROM bookings
         WHERE cottage_id = %s AND check_in < %s
           AND (check_out + CASE WHEN late_checkout THEN 1 ELSE 0 END) > %s
-          AND status != 'cancelled'
+          AND status NOT IN ('cancelled','checked_out')
     """, (target_id, co_eff, ci))
     conflict = cur.fetchone()
     if conflict:
@@ -1453,7 +1453,7 @@ def bulk_delete_bookings():
 def cottage_booked_ranges(cottage_id):
     """Занятые диапазоны дат объекта — для подсветки в календаре."""
     conn = get_db(); cur = conn.cursor()
-    cur.execute("SELECT check_in, check_out, late_checkout FROM bookings WHERE cottage_id = %s AND status != 'cancelled' ORDER BY check_in", (cottage_id,))
+    cur.execute("SELECT check_in, check_out, late_checkout FROM bookings WHERE cottage_id = %s AND status NOT IN ('cancelled','checked_out') ORDER BY check_in", (cottage_id,))
     ranges = []
     for r in cur.fetchall():
         end = r["check_out"]
@@ -1483,7 +1483,7 @@ def cottage_bookings_page(cottage_id):
     # Занятые диапазоны для подсветки в календаре («поздний выезд» занимает и день выезда)
     booked_ranges = []
     for b in bookings:
-        if b.get("status") == "cancelled":
+        if b.get("status") in ("cancelled", "checked_out"):
             continue
         end = b["check_out"]
         if b.get("late_checkout"):

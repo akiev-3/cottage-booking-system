@@ -20,9 +20,10 @@
   .balance-badge  { background:#fef9c3;color:#92400e;font-size:0.78rem;font-weight:600;padding:2px 7px;border-radius:4px; }
   .paid-badge     { background:#dcfce7;color:#166534;font-size:0.78rem;font-weight:600;padding:2px 7px;border-radius:4px; }
   .extra-badge    { background:#ffedd5;color:#9a3412;font-size:0.78rem;font-weight:600;padding:2px 7px;border-radius:4px; }
-  .status-active    { background:#dbeafe;color:#1d4ed8;font-size:0.78rem;font-weight:700;padding:3px 9px;border-radius:12px;white-space:nowrap; }
-  .status-cancelled { background:#fee2e2;color:#991b1b;font-size:0.78rem;font-weight:700;padding:3px 9px;border-radius:12px;white-space:nowrap; }
-  .status-paid      { background:#dcfce7;color:#166534;font-size:0.78rem;font-weight:700;padding:3px 9px;border-radius:12px;white-space:nowrap; }
+  .status-active      { background:#dbeafe;color:#1d4ed8;font-size:0.78rem;font-weight:700;padding:3px 9px;border-radius:12px;white-space:nowrap; }
+  .status-cancelled   { background:#fee2e2;color:#991b1b;font-size:0.78rem;font-weight:700;padding:3px 9px;border-radius:12px;white-space:nowrap; }
+  .status-paid        { background:#dcfce7;color:#166534;font-size:0.78rem;font-weight:700;padding:3px 9px;border-radius:12px;white-space:nowrap; }
+  .status-checked-out { background:#f3f4f6;color:#6b7280;font-size:0.78rem;font-weight:700;padding:3px 9px;border-radius:12px;white-space:nowrap; }
   tr.booking-cancelled td { opacity:0.55; }
   tr.booking-cancelled td.actions-col { opacity:1; }
   .transfer-info { background:#f8fafd; border:1px solid var(--border); border-radius:8px; padding:12px 16px; margin-bottom:16px; font-size:0.9rem; line-height:1.7; }
@@ -141,6 +142,7 @@
               {% if b.status == 'active' %}<span class="status-active">Активна</span>
               {% elif b.status == 'cancelled' %}<span class="status-cancelled">Отменена</span>
               {% elif b.status == 'paid' %}<span class="status-paid">Оплачена</span>
+              {% elif b.status == 'checked_out' %}<span class="status-checked-out">Выехал</span>
               {% else %}<span class="status-active">Активна</span>{% endif %}
             </td>
             {% if can('bookings_edit') %}
@@ -148,15 +150,20 @@
               <div class="row-actions">
                 <button class="btn btn-sm btn-outline" title="Изменить"
                         onclick='editBooking({{ b.id }}, {{ {"guest_name": b.guest_name, "check_in": b.check_in, "check_out": b.check_out, "guests": b.guests, "nights": b.nights, "discount": b.discount, "deposit_paid": b.deposit_paid, "deposit_date": b.deposit_date, "deposit_payment_type": b.deposit_payment_type, "balance_date": b.balance_date, "extra_per_night": b.extra_per_night, "early_checkin": b.early_checkin, "late_checkout": b.late_checkout, "early_late_fee": b.early_late_fee, "total_before_discount": b.total_before_discount, "payment_type": b.payment_type, "notes": b.notes}|tojson }})'>✏️</button>
-                {% if b.status != 'cancelled' %}
+                {% if b.status not in ('cancelled', 'checked_out') %}
                 <button class="btn btn-sm btn-outline" title="Перенести в другой объект"
                         onclick='openTransferModal({{ b.id }}, {{ {"guest_name": b.guest_name, "check_in": b.check_in, "check_out": b.check_out, "nights": b.nights, "total": b.total, "discount": b.discount}|tojson }})'>🔀</button>
+                {% endif %}
+                {% if b.status in ('active', 'paid') %}
+                <button class="btn btn-sm btn-checkout" title="Клиент выехал" onclick="setBookingStatus({{ b.id }}, 'checked_out')">🚪</button>
                 {% endif %}
                 {% if b.status == 'active' %}
                 <button class="btn btn-sm btn-success" title="Отметить как оплаченную" onclick="setBookingStatus({{ b.id }}, 'paid')">✓</button>
                 <button class="btn btn-sm btn-danger"  title="Отменить бронь"           onclick="setBookingStatus({{ b.id }}, 'cancelled')">✗</button>
                 {% elif b.status == 'cancelled' %}
                 <button class="btn btn-sm btn-outline" title="Восстановить бронь"       onclick="setBookingStatus({{ b.id }}, 'active')">↩</button>
+                {% elif b.status == 'checked_out' %}
+                <button class="btn btn-sm btn-outline" title="Вернуть в активные"       onclick="setBookingStatus({{ b.id }}, 'active')">↩</button>
                 {% endif %}
               </div>
             </td>

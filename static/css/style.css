@@ -229,6 +229,8 @@ header .btn { padding: 8px 14px; font-size: 0.85rem; }
 .btn-success:hover  { background: var(--success-dark); }
 .btn-danger   { background: var(--danger);   color: #fff; }
 .btn-danger:hover   { background: var(--danger-dark); }
+.btn-checkout { background: #f3f4f6; color: #374151; border: 1.5px solid #d1d5db; }
+.btn-checkout:hover { background: #e5e7eb; }
 .btn-outline  { background: transparent; color: var(--text); border: 1.5px solid var(--border); }
 .btn-outline:hover  { background: var(--bg); }
 .btn-excel    { background: #1d6f42; color: #fff; }
@@ -784,7 +786,7 @@ textarea { resize: vertical; }
   .bookings-table .paid-badge, .bookings-table .extra-badge,
   .bookings-table .discount-badge, .bookings-table .was-price,
   .bookings-table .status-active, .bookings-table .status-cancelled,
-  .bookings-table .status-paid { font-size: 0.58rem; padding: 1px 4px; }
+  .bookings-table .status-paid, .bookings-table .status-checked-out { font-size: 0.58rem; padding: 1px 4px; }
   .bookings-table .row-actions { gap: 3px; }
   .bookings-table .row-actions .btn-sm { padding: 4px 6px; font-size: 0.7rem; }
   .bookings-table .cb-col { width: 26px; padding: 4px 4px !important; }

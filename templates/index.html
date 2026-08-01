@@ -32,6 +32,7 @@
       {% endif %}
     </div>
     <a href="/map" class="btn btn-outline">🗺️ Карта</a>
+    <button class="btn btn-outline" onclick="openCheckouts()">🚪 Выезды</button>
     <a href="/dashboard" class="btn btn-outline">📊 Оперативка</a>
     <a href="/report/tax" class="btn btn-outline">📋 Налог. отчёт</a>
     {% if can('services_view') %}<a href="/services" class="btn btn-outline">🛎️ Услуги</a>{% endif %}
@@ -408,11 +409,82 @@
   </div>
 </div>
 
+<!-- ── Модал «Выезды» ── -->
+<div class="modal-overlay" id="modal-checkouts" onclick="if(event.target===this)closeModal('modal-checkouts')">
+  <div class="modal" style="max-width:480px">
+    <div class="modal-header">
+      <h3>🚪 Выезды</h3>
+      <button class="close-btn" onclick="closeModal('modal-checkouts')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div style="margin-bottom:16px">
+        <input type="text" id="checkouts-date-input" class="form-control" placeholder="Выберите дату" readonly style="cursor:pointer">
+      </div>
+      <div id="checkouts-list"></div>
+    </div>
+  </div>
+</div>
+
 <div id="toast" class="toast"></div>
 
 <script>
   let RATE = {{ rate }};
 </script>
 <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+
+<script>
+(function() {
+  let _coFp = null;
+
+  window.openCheckouts = function() {
+    document.getElementById('modal-checkouts').classList.add('open');
+    if (!_coFp) {
+      _coFp = flatpickr('#checkouts-date-input', {
+        dateFormat: 'd.m.Y',
+        defaultDate: 'today',
+        locale: { firstDayOfWeek: 1,
+          months: { longhand: ['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'],
+                    shorthand:['Янв','Фев','Мар','Апр','Май','Июн','Июл','Авг','Сен','Окт','Ноя','Дек'] },
+          weekdays: { longhand:['Воскресенье','Понедельник','Вторник','Среда','Четверг','Пятница','Суббота'],
+                      shorthand:['Вс','Пн','Вт','Ср','Чт','Пт','Сб'] } },
+        onChange: function(dates) {
+          if (dates[0]) loadCheckouts(dates[0]);
+        }
+      });
+    }
+    loadCheckouts(new Date());
+  };
+
+  function loadCheckouts(dateObj) {
+    const iso = dateObj.toISOString().slice(0, 10);
+    const list = document.getElementById('checkouts-list');
+    list.innerHTML = '<div style="color:var(--muted);text-align:center;padding:20px 0">Загрузка…</div>';
+    fetch('/checkouts?date=' + iso)
+      .then(r => r.json())
+      .then(function(rows) {
+        if (!rows.length) {
+          list.innerHTML = '<div style="color:var(--muted);text-align:center;padding:24px 0">Выездов нет</div>';
+          return;
+        }
+        list.innerHTML = rows.map(function(b) {
+          const statusLabel = b.status === 'paid'
+            ? '<span class="status-paid">Оплачена</span>'
+            : '<span class="status-active">Активна</span>';
+          const late = b.late_checkout ? ' <span style="font-size:0.75rem;color:var(--muted)">(поздний)</span>' : '';
+          return '<div style="display:flex;align-items:center;justify-content:space-between;padding:12px 0;border-bottom:1px solid var(--border)">'
+            + '<div>'
+            + '<div style="font-weight:600">' + b.cottage_name + late + '</div>'
+            + '<div style="color:var(--muted);font-size:0.88rem">' + b.guest_name + ' · ' + b.nights + ' н.</div>'
+            + '</div>'
+            + '<div>' + statusLabel + '</div>'
+            + '</div>';
+        }).join('');
+      })
+      .catch(function() {
+        list.innerHTML = '<div style="color:var(--danger);text-align:center;padding:20px 0">Ошибка загрузки</div>';
+      });
+  }
+})();
+</script>
 </body>
 </html>

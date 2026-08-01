@@ -1415,6 +1415,27 @@ def update_booking(booking_id):
     return jsonify(booking)
 
 
+@app.route("/checkouts")
+@require_perm("bookings_view")
+def checkouts():
+    date_str = request.args.get("date", date.today().isoformat())
+    try:
+        d = date.fromisoformat(date_str)
+    except ValueError:
+        d = date.today()
+    conn = get_db(); cur = conn.cursor()
+    cur.execute("""
+        SELECT b.id, b.guest_name, b.check_in::text, b.check_out::text,
+               b.nights, b.status, b.total, b.cottage_name, b.late_checkout
+        FROM bookings b
+        WHERE b.check_out = %s AND b.status != 'cancelled'
+        ORDER BY b.cottage_name
+    """, (d,))
+    rows = [dict(r) for r in cur.fetchall()]
+    cur.close(); conn.close()
+    return jsonify(rows)
+
+
 @app.route("/bookings/<int:booking_id>/status", methods=["PATCH"])
 @require_perm("bookings_edit")
 def update_booking_status(booking_id):

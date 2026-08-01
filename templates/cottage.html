@@ -142,7 +142,10 @@
               {% if b.status == 'active' %}<span class="status-active">Активна</span>
               {% elif b.status == 'cancelled' %}<span class="status-cancelled">Отменена</span>
               {% elif b.status == 'paid' %}<span class="status-paid">Оплачена</span>
-              {% elif b.status == 'checked_out' %}<span class="status-checked-out">Выехал</span>
+              {% elif b.status == 'checked_out' %}
+                <span class="status-checked-out">Выехал</span>
+                {% if b.balance <= 0 and b.deposit_paid > 0 %}<span class="status-paid">Оплачена</span>
+                {% elif b.balance > 0 %}<span class="balance-badge">{{ "%.0f"|format(b.balance) }}</span>{% endif %}
               {% else %}<span class="status-active">Активна</span>{% endif %}
             </td>
             {% if can('bookings_edit') %}

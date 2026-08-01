@@ -786,7 +786,8 @@ textarea { resize: vertical; }
   .bookings-table .paid-badge, .bookings-table .extra-badge,
   .bookings-table .discount-badge, .bookings-table .was-price,
   .bookings-table .status-active, .bookings-table .status-cancelled,
-  .bookings-table .status-paid, .bookings-table .status-checked-out { font-size: 0.58rem; padding: 1px 4px; }
+  .bookings-table .status-paid, .bookings-table .status-unpaid,
+  .bookings-table .status-lives, .bookings-table .status-checked-out { font-size: 0.58rem; padding: 1px 4px; }
   .bookings-table .row-actions { gap: 3px; }
   .bookings-table .row-actions .btn-sm { padding: 4px 6px; font-size: 0.7rem; }
   .bookings-table .cb-col { width: 26px; padding: 4px 4px !important; }

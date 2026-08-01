@@ -2240,7 +2240,7 @@ def _auto_checkout_expired():
         cur.execute("""
             UPDATE bookings SET status = 'checked_out'
             WHERE status IN ('active', 'paid')
-              AND check_out < CURRENT_DATE
+              AND check_out <= CURRENT_DATE
         """)
         conn.commit(); cur.close(); conn.close()
     except Exception as e:

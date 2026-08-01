@@ -1,7 +1,6 @@
 from flask import Flask, render_template, request, jsonify, redirect, url_for, send_file, session
 from functools import wraps
 from werkzeug.security import generate_password_hash, check_password_hash
-import threading
 import os
 import io
 import json
@@ -461,7 +460,7 @@ def dashboard_availability():
         FROM bookings
         WHERE check_in < %s
           AND (check_out + CASE WHEN late_checkout THEN 1 ELSE 0 END) > %s
-          AND status NOT IN ('cancelled','checked_out')
+          AND status != 'cancelled'
         GROUP BY cottage_id
     """, (co, ci))
     occupied_map = {r["cottage_id"]: r["conflicts"] for r in cur.fetchall()}
@@ -741,7 +740,7 @@ def index():
     cur.execute("SELECT * FROM cottages ORDER BY position, id")
     cottages = [dict(r) for r in cur.fetchall()]
     # Счётчик активных (не прошедших и не отменённых) броней
-    cur.execute("SELECT cottage_id, COUNT(*) AS cnt FROM bookings WHERE check_out >= CURRENT_DATE AND status NOT IN ('cancelled','checked_out') GROUP BY cottage_id")
+    cur.execute("SELECT cottage_id, COUNT(*) AS cnt FROM bookings WHERE check_out >= CURRENT_DATE AND status != 'cancelled' GROUP BY cottage_id")
     counts = {r["cottage_id"]: r["cnt"] for r in cur.fetchall()}
     for c in cottages:
         c["bookings_count"] = counts.get(c["id"], 0)
@@ -777,7 +776,7 @@ def map_page():
     # Занятые сегодня объекты (есть активная бронь, покрывающая текущую дату)
     cur.execute("""
         SELECT DISTINCT cottage_id FROM bookings
-        WHERE status NOT IN ('cancelled','checked_out') AND check_in <= CURRENT_DATE AND check_out > CURRENT_DATE
+        WHERE status != 'cancelled' AND check_in <= CURRENT_DATE AND check_out > CURRENT_DATE
     """)
     occupied = {r["cottage_id"] for r in cur.fetchall()}
     cur.close(); conn.close()
@@ -1153,7 +1152,7 @@ def create_booking():
         SELECT id, check_in, check_out FROM bookings
         WHERE cottage_id = %s AND check_in < %s
           AND (check_out + CASE WHEN late_checkout THEN 1 ELSE 0 END) > %s
-          AND status NOT IN ('cancelled','checked_out')
+          AND status != 'cancelled'
     """, (cottage_id, co_eff, ci))
     conflict = cur.fetchone()
     if conflict:
@@ -1255,7 +1254,7 @@ def update_booking(booking_id):
         SELECT id, check_in, check_out FROM bookings
         WHERE cottage_id = %s AND id <> %s AND check_in < %s
           AND (check_out + CASE WHEN late_checkout THEN 1 ELSE 0 END) > %s
-          AND status NOT IN ('cancelled','checked_out')
+          AND status != 'cancelled'
     """, (cottage_id, booking_id, co_eff, ci))
     conflict = cur.fetchone()
     if conflict:
@@ -1327,7 +1326,7 @@ def update_booking(booking_id):
 @require_perm("bookings_edit")
 def update_booking_status(booking_id):
     new_status = (request.get_json(silent=True) or {}).get("status")
-    if new_status not in ("active", "cancelled", "paid", "checked_out"):
+    if new_status not in ("active", "cancelled", "paid"):
         return jsonify({"error": "Недопустимый статус"}), 400
     conn = get_db(); cur = conn.cursor()
     cur.execute("UPDATE bookings SET status=%s WHERE id=%s RETURNING *", (new_status, booking_id))
@@ -1365,7 +1364,7 @@ def cottage_availability(cottage_id):
         SELECT id FROM bookings
         WHERE cottage_id = %s AND check_in < %s
           AND (check_out + CASE WHEN late_checkout THEN 1 ELSE 0 END) > %s
-          AND status NOT IN ('cancelled','checked_out')
+          AND status != 'cancelled'
         LIMIT 1
     """, (cottage_id, co, ci))
     conflict = cur.fetchone()
@@ -1407,7 +1406,7 @@ def transfer_booking(booking_id):
         SELECT id, check_in, check_out FROM bookings
         WHERE cottage_id = %s AND check_in < %s
           AND (check_out + CASE WHEN late_checkout THEN 1 ELSE 0 END) > %s
-          AND status NOT IN ('cancelled','checked_out')
+          AND status != 'cancelled'
     """, (target_id, co_eff, ci))
     conflict = cur.fetchone()
     if conflict:
@@ -1454,7 +1453,7 @@ def bulk_delete_bookings():
 def cottage_booked_ranges(cottage_id):
     """Занятые диапазоны дат объекта — для подсветки в календаре."""
     conn = get_db(); cur = conn.cursor()
-    cur.execute("SELECT check_in, check_out, late_checkout FROM bookings WHERE cottage_id = %s AND status NOT IN ('cancelled','checked_out') ORDER BY check_in", (cottage_id,))
+    cur.execute("SELECT check_in, check_out, late_checkout FROM bookings WHERE cottage_id = %s AND status != 'cancelled' ORDER BY check_in", (cottage_id,))
     ranges = []
     for r in cur.fetchall():
         end = r["check_out"]
@@ -1484,7 +1483,7 @@ def cottage_bookings_page(cottage_id):
     # Занятые диапазоны для подсветки в календаре («поздний выезд» занимает и день выезда)
     booked_ranges = []
     for b in bookings:
-        if b.get("status") in ("cancelled", "checked_out"):
+        if b.get("status") == "cancelled":
             continue
         end = b["check_out"]
         if b.get("late_checkout"):
@@ -2233,35 +2232,11 @@ def backup_restore():
 
 # ── Старт ─────────────────────────────────────────────────
 
-def _auto_checkout_expired():
-    """Переводит в checked_out брони, у которых дата выезда уже прошла."""
-    try:
-        conn = get_db(); cur = conn.cursor()
-        cur.execute("""
-            UPDATE bookings SET status = 'checked_out'
-            WHERE status IN ('active', 'paid')
-              AND check_out < CURRENT_DATE
-        """)
-        conn.commit(); cur.close(); conn.close()
-    except Exception as e:
-        print(f"auto_checkout error: {e}")
-
-def _auto_checkout_loop():
-    """Фоновый поток: авто-выселение раз в час."""
-    while True:
-        _auto_checkout_expired()
-        threading.Event().wait(3600)  # 1 час
-
 with app.app_context():
     try:
         init_db()
-        _auto_checkout_expired()  # при старте — сразу
     except Exception as e:
         print(f"DB init skipped (no DATABASE_URL?): {e}")
-
-# Запускаем фоновый поток (daemon — завершится вместе с процессом)
-_t = threading.Thread(target=_auto_checkout_loop, daemon=True)
-_t.start()
 
 @app.route("/export/excel/owner/<owner_type>")
 @require_perm("excel")

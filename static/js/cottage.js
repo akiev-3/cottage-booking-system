@@ -131,7 +131,7 @@ function initCalendars(allowPast) {
   if (fpCheckin)  fpCheckin.destroy();
   if (fpCheckout) fpCheckout.destroy();
   fpCheckin  = flatpickr('#booking-checkin',  { ...base, disable: disableIn, minDate: allowPast ? null : 'today',
-    onChange:(sel)=>{ if(sel[0]){ const m=new Date(sel[0]); m.setDate(m.getDate()+2); fpCheckout.set('minDate', m); } calcTotal(); } });
+    onChange:(sel)=>{ if(sel[0]){ const m=new Date(sel[0]); m.setDate(m.getDate()+1); fpCheckout.set('minDate', m); } calcTotal(); } });
   fpCheckout = flatpickr('#booking-checkout', { ...base, disable: disableOut });
 }
 let fpDepositDate = null, fpBalanceDate = null;
@@ -193,7 +193,7 @@ function openCreateBooking() {
     if (fpCheckout && _quickbook.check_out) {
       if (_quickbook.check_in) {
         const m = new Date(_quickbook.check_in + 'T00:00:00');
-        m.setDate(m.getDate() + 2);
+        m.setDate(m.getDate() + 1);
         fpCheckout.set('minDate', m);
       }
       fpCheckout.setDate(_quickbook.check_out, false);
@@ -241,7 +241,7 @@ function editBooking(id, b) {
   fpCheckin.setDate(b.check_in, false);
   if (b.check_in) {
     const m = new Date(b.check_in + 'T00:00:00');
-    m.setDate(m.getDate() + 2);
+    m.setDate(m.getDate() + 1);
     fpCheckout.set('minDate', m);
   }
   fpCheckout.setDate(b.check_out, false);
@@ -305,7 +305,7 @@ async function submitBookingPage(e) {
   const ci = document.getElementById('booking-checkin').value;
   const co = document.getElementById('booking-checkout').value;
   if (!ci || !co) { showToast('Выберите даты заезда и выезда', 'error'); return; }
-  if (Math.round((new Date(co) - new Date(ci)) / 86400000) < 2) { showToast('Минимальный срок брони — 2 ночи', 'error'); return; }
+  if (Math.round((new Date(co) - new Date(ci)) / 86400000) < 1) { showToast('Дата выезда должна быть позже даты заезда', 'error'); return; }
   // При позднем выезде новая бронь занимает и день выезда
   const coChk = document.getElementById('booking-late-checkout').checked
     ? isoDate(new Date(new Date(co + 'T00:00:00').getTime() + 86400000)) : co;

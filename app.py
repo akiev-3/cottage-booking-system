@@ -1,6 +1,7 @@
 from flask import Flask, render_template, request, jsonify, redirect, url_for, send_file, session
 from functools import wraps
 from werkzeug.security import generate_password_hash, check_password_hash
+import threading
 import os
 import io
 import json
@@ -2232,11 +2233,35 @@ def backup_restore():
 
 # ── Старт ─────────────────────────────────────────────────
 
+def _auto_checkout_expired():
+    """Переводит в checked_out брони, у которых дата выезда уже прошла."""
+    try:
+        conn = get_db(); cur = conn.cursor()
+        cur.execute("""
+            UPDATE bookings SET status = 'checked_out'
+            WHERE status IN ('active', 'paid')
+              AND check_out < CURRENT_DATE
+        """)
+        conn.commit(); cur.close(); conn.close()
+    except Exception as e:
+        print(f"auto_checkout error: {e}")
+
+def _auto_checkout_loop():
+    """Фоновый поток: авто-выселение раз в час."""
+    while True:
+        _auto_checkout_expired()
+        threading.Event().wait(3600)  # 1 час
+
 with app.app_context():
     try:
         init_db()
+        _auto_checkout_expired()  # при старте — сразу
     except Exception as e:
         print(f"DB init skipped (no DATABASE_URL?): {e}")
+
+# Запускаем фоновый поток (daemon — завершится вместе с процессом)
+_t = threading.Thread(target=_auto_checkout_loop, daemon=True)
+_t.start()
 
 @app.route("/export/excel/owner/<owner_type>")
 @require_perm("excel")

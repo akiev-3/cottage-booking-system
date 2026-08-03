@@ -500,6 +500,7 @@ def dashboard_owing():
         d = date.fromisoformat(date_str)
     except ValueError:
         d = date.today()
+    include_employees = request.args.get("employees") == "1"
     conn = get_db(); cur = conn.cursor()
     cur.execute("""
         SELECT b.* FROM bookings b
@@ -507,8 +508,9 @@ def dashboard_owing():
         WHERE b.check_in <= %s AND b.check_out >= %s
           AND b.status != 'cancelled'
           AND c.owner_type != 'Собственник'
+          AND (c.property_type != 'Номер для сотрудников' OR %s)
         ORDER BY b.check_out, b.cottage_name
-    """, (d, d))
+    """, (d, d, include_employees))
     bookings = [serialize_booking(r) for r in cur.fetchall()]
     cur.close(); conn.close()
     bookings.sort(key=lambda b: (0 if b["balance"] > 0 and b["status"] != "paid" else 1, b["check_out"]))

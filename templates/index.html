@@ -455,8 +455,14 @@
     loadCheckouts(new Date());
   };
 
+  function localIso(d) {
+    return d.getFullYear() + '-'
+      + String(d.getMonth() + 1).padStart(2, '0') + '-'
+      + String(d.getDate()).padStart(2, '0');
+  }
+
   function loadCheckouts(dateObj) {
-    const iso = dateObj.toISOString().slice(0, 10);
+    const iso = localIso(dateObj);
     const list = document.getElementById('checkouts-list');
     list.innerHTML = '<div style="color:var(--muted);text-align:center;padding:20px 0">Загрузка…</div>';
     fetch('/checkouts?date=' + iso)

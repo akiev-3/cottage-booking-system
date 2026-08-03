@@ -515,6 +515,78 @@ def dashboard_owing():
     return jsonify(bookings)
 
 
+@app.route("/dashboard/occupancy")
+@require_perm("bookings_view")
+def dashboard_occupancy():
+    start_str = request.args.get("start", "")
+    end_str   = request.args.get("end", "")
+    try:
+        start_d = date.fromisoformat(start_str)
+        end_d   = date.fromisoformat(end_str)
+    except ValueError:
+        today   = date.today()
+        start_d = today.replace(day=1)
+        end_d   = today
+
+    if end_d < start_d:
+        return jsonify({"error": "Начало позже конца"}), 400
+
+    total_days = (end_d - start_d).days + 1
+
+    conn = get_db(); cur = conn.cursor()
+    cur.execute("""
+        SELECT id, name FROM cottages
+        WHERE owner_type != 'Собственник'
+        ORDER BY position, id
+    """)
+    cottages = [dict(r) for r in cur.fetchall()]
+
+    if not cottages:
+        cur.close(); conn.close()
+        return jsonify({"cottages": [], "overall_pct": 0, "total_days": total_days})
+
+    cottage_ids = [c["id"] for c in cottages]
+    cur.execute("""
+        SELECT cottage_id, check_in::text, check_out::text
+        FROM bookings
+        WHERE cottage_id = ANY(%s)
+          AND status != 'cancelled'
+          AND check_in  < %s
+          AND check_out > %s
+    """, (cottage_ids, end_d + timedelta(days=1), start_d))
+    bookings = [dict(r) for r in cur.fetchall()]
+    cur.close(); conn.close()
+
+    cottage_occ = {c["id"]: 0 for c in cottages}
+    for b in bookings:
+        ci  = max(date.fromisoformat(b["check_in"]),  start_d)
+        co  = min(date.fromisoformat(b["check_out"]), end_d + timedelta(days=1))
+        days = (co - ci).days
+        if days > 0:
+            cottage_occ[b["cottage_id"]] += days
+
+    result = []
+    total_occupied = 0
+    for c in cottages:
+        occ = cottage_occ[c["id"]]
+        total_occupied += occ
+        pct = round(occ / total_days * 100, 1) if total_days > 0 else 0
+        result.append({"id": c["id"], "name": c["name"],
+                        "occupied_days": occ, "pct": pct})
+
+    result.sort(key=lambda x: -x["pct"])
+    total_possible = total_days * len(cottages)
+    overall_pct    = round(total_occupied / total_possible * 100, 1) if total_possible > 0 else 0
+
+    return jsonify({
+        "cottages":       result,
+        "overall_pct":    overall_pct,
+        "total_days":     total_days,
+        "total_occupied": total_occupied,
+        "total_possible": total_possible,
+    })
+
+
 @app.route("/dashboard/availability")
 @require_perm("bookings_view")
 def dashboard_availability():

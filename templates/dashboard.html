@@ -24,8 +24,14 @@
 
 <main class="dash-main">
 
-  <!-- ── Блок 1: Кто живёт ──────────────────────────────── -->
-  <section class="dash-section">
+  <nav class="dash-tabs">
+    <button class="dash-tab active" onclick="switchTab('owing',   this)">💳 Кто живёт</button>
+    <button class="dash-tab"        onclick="switchTab('avail',   this)">🔍 Свободные</button>
+    <button class="dash-tab"        onclick="switchTab('occ',     this)">📈 Заселяемость</button>
+  </nav>
+
+  <!-- ── Вкладка 1: Кто живёт ──────────────────────────────── -->
+  <div id="panel-owing" class="dash-panel active">
     <div class="dash-section-head">
       <h2 class="dash-section-title">💳 Кто живёт и что должен</h2>
       <div class="dash-date-row">
@@ -34,11 +40,11 @@
       </div>
     </div>
     <div id="owing-result" class="dash-placeholder">Загрузка...</div>
-  </section>
+  </div>
 
-  <!-- ── Блок 2: Свободные объекты ──────────────────────── -->
-  <section class="dash-section">
-    <h2 class="dash-section-title">🔍 Свободные объекты</h2>
+  <!-- ── Вкладка 2: Свободные объекты ──────────────────────── -->
+  <div id="panel-avail" class="dash-panel">
+    <h2 class="dash-section-title" style="margin-bottom:16px">🔍 Свободные объекты</h2>
     <div class="dash-search-row">
       <div class="form-group" style="margin:0">
         <label class="form-label">Заезд</label>
@@ -51,7 +57,32 @@
       <button class="btn btn-primary dash-search-btn" onclick="searchAvailability()">Проверить</button>
     </div>
     <div id="avail-result"></div>
-  </section>
+  </div>
+
+  <!-- ── Вкладка 3: Заселяемость ───────────────────────────── -->
+  <div id="panel-occ" class="dash-panel">
+    <h2 class="dash-section-title" style="margin-bottom:16px">📈 Заселяемость</h2>
+
+    <div class="occ-presets">
+      <button class="occ-preset" data-preset="month"  onclick="applyPreset(this)">Текущий месяц</button>
+      <button class="occ-preset" data-preset="season" onclick="applyPreset(this)">Сезон 2026</button>
+      <button class="occ-preset active" data-preset="custom" onclick="applyPreset(this)">Произвольный</button>
+    </div>
+
+    <div class="occ-range-row">
+      <div class="form-group" style="margin:0">
+        <label class="form-label">С</label>
+        <input type="text" id="occ-start" class="form-control dash-date-input" placeholder="дд/мм/гг">
+      </div>
+      <div class="form-group" style="margin:0">
+        <label class="form-label">По</label>
+        <input type="text" id="occ-end" class="form-control dash-date-input" placeholder="дд/мм/гг">
+      </div>
+      <button class="btn btn-primary" onclick="loadOccupancy()">Показать</button>
+    </div>
+
+    <div id="occ-result"><div class="dash-placeholder">Выберите период</div></div>
+  </div>
 
 </main>
 
@@ -91,7 +122,15 @@ function showToast(msg, type) {
   setTimeout(() => t.classList.remove('show'), 3000);
 }
 
-// ── Блок 1 ─────────────────────────────────────────────────
+// ── Вкладки ────────────────────────────────────────────────
+function switchTab(name, btn) {
+  document.querySelectorAll('.dash-tab').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.dash-panel').forEach(p => p.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('panel-' + name).classList.add('active');
+}
+
+// ── Вкладка 1 ─────────────────────────────────────────────
 let owingDateVal = TODAY;
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -114,7 +153,7 @@ document.addEventListener('DOMContentLoaded', () => {
     locale: FP_RU, minDate: 'today',
     onChange: (sel) => {
       if (sel[0] && fpOut) {
-        const m = new Date(sel[0]); m.setDate(m.getDate() + 2);
+        const m = new Date(sel[0]); m.setDate(m.getDate() + 1);
         fpOut.set('minDate', m);
       }
     }
@@ -123,6 +162,19 @@ document.addEventListener('DOMContentLoaded', () => {
     dateFormat: 'Y-m-d', altInput: true, altFormat: 'd/m/Y',
     locale: FP_RU, minDate: 'today',
   });
+
+  // Датпикеры заселяемости
+  occFpStart = flatpickr('#occ-start', {
+    dateFormat: 'Y-m-d', altInput: true, altFormat: 'd/m/Y', locale: FP_RU,
+    onChange: () => clearPreset(),
+  });
+  occFpEnd = flatpickr('#occ-end', {
+    dateFormat: 'Y-m-d', altInput: true, altFormat: 'd/m/Y', locale: FP_RU,
+    onChange: () => clearPreset(),
+  });
+
+  // По умолчанию — текущий месяц
+  applyPreset(document.querySelector('.occ-preset[data-preset="month"]'));
 
   loadOwing();
 });
@@ -153,7 +205,6 @@ function renderOwing(bookings) {
   const paid  = bookings.filter(b => b.balance <= 0 || b.status === 'paid');
 
   let html = '';
-
   if (owing.length) {
     html += `<div class="dash-group-label dash-owing-label">⚠️ Есть задолженность (${owing.length})</div>`;
     html += buildOwingTable(owing);
@@ -162,7 +213,6 @@ function renderOwing(bookings) {
     html += `<div class="dash-group-label dash-paid-label" style="margin-top:${owing.length?'20px':'0'}">✓ Оплачено (${paid.length})</div>`;
     html += buildOwingTable(paid);
   }
-
   el.innerHTML = html;
 }
 
@@ -193,7 +243,7 @@ function buildOwingTable(rows) {
   return t;
 }
 
-// ── Блок 2 ─────────────────────────────────────────────────
+// ── Вкладка 2 ─────────────────────────────────────────────
 async function searchAvailability() {
   const ci = document.getElementById('avail-checkin').value;
   const co = document.getElementById('avail-checkout').value;
@@ -242,6 +292,115 @@ function renderAvailability(cottages, ci, co, rate) {
     </div>`;
   }
   html += `</div>`;
+  el.innerHTML = html;
+}
+
+// ── Вкладка 3: Заселяемость ───────────────────────────────
+let occFpStart = null, occFpEnd = null;
+
+function clearPreset() {
+  document.querySelectorAll('.occ-preset').forEach(b => b.classList.remove('active'));
+  document.querySelector('.occ-preset[data-preset="custom"]').classList.add('active');
+}
+
+function applyPreset(btn) {
+  document.querySelectorAll('.occ-preset').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+
+  const preset = btn.dataset.preset;
+  const today  = new Date(TODAY + 'T00:00:00');
+
+  let start, end;
+  if (preset === 'month') {
+    start = new Date(today.getFullYear(), today.getMonth(), 1);
+    end   = today;
+  } else if (preset === 'season') {
+    start = new Date(today.getFullYear(), 5, 1);   // 1 июня
+    end   = new Date(today.getFullYear(), 8, 30);  // 30 сентября
+    if (end > today) end = today;
+  } else {
+    return; // custom — просто снять другие пресеты
+  }
+
+  if (occFpStart) occFpStart.setDate(isoDate(start), true);
+  if (occFpEnd)   occFpEnd.setDate(isoDate(end),     true);
+  loadOccupancy();
+}
+
+function isoDate(d) {
+  return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+}
+
+async function loadOccupancy() {
+  const start = document.getElementById('occ-start').value;
+  const end   = document.getElementById('occ-end').value;
+  if (!start || !end) { showToast('Выберите период', 'error'); return; }
+
+  const el = document.getElementById('occ-result');
+  el.innerHTML = '<div class="dash-placeholder">Загрузка...</div>';
+
+  const res  = await fetch(`/dashboard/occupancy?start=${start}&end=${end}`);
+  const data = await res.json();
+  if (!res.ok) { el.innerHTML = `<div class="dash-placeholder">${data.error || 'Ошибка'}</div>`; return; }
+
+  renderOccupancy(data, start, end);
+}
+
+function barClass(pct) {
+  if (pct >= 70) return 'high';
+  if (pct >= 40) return 'med';
+  return 'low';
+}
+
+function renderOccupancy(data, start, end) {
+  const el = document.getElementById('occ-result');
+  const { cottages, overall_pct, total_days, total_occupied, total_possible } = data;
+
+  const overallClass = barClass(overall_pct);
+  const overallColor = overallClass === 'high' ? '#22c55e' : overallClass === 'med' ? '#f59e0b' : '#ef4444';
+
+  let html = `<div class="occ-summary">
+    <div class="occ-big">
+      <div class="occ-big-num" style="color:${overallColor}">${overall_pct}%</div>
+      <div class="occ-big-label">Общая заселяемость</div>
+    </div>
+    <div class="occ-meta">
+      <div>Период: <b>${fmtDate(start)} — ${fmtDate(end)}</b> (${total_days} дн.)</div>
+      <div>Объектов: <b>${cottages.length}</b></div>
+      <div>Занято ночей: <b>${total_occupied}</b> из <b>${total_possible}</b></div>
+    </div>
+  </div>`;
+
+  if (!cottages.length) {
+    html += '<div class="dash-placeholder">Нет объектов</div>';
+    el.innerHTML = html;
+    return;
+  }
+
+  html += `<div class="dash-table-wrap"><table class="occ-table">
+    <thead><tr>
+      <th>Объект</th>
+      <th>Занято дней</th>
+      <th style="min-width:160px">Загрузка</th>
+      <th>%</th>
+    </tr></thead><tbody>`;
+
+  for (const c of cottages) {
+    const cls = barClass(c.pct);
+    const free = total_days - c.occupied_days;
+    html += `<tr>
+      <td><a href="/cottages/${c.id}/bookings" class="dash-link">${c.name}</a></td>
+      <td style="color:var(--muted);font-size:0.88rem">${c.occupied_days} / ${total_days}</td>
+      <td>
+        <div class="occ-bar-wrap">
+          <div class="occ-bar ${cls}" style="width:${c.pct}%"></div>
+        </div>
+      </td>
+      <td><span class="occ-pct-num">${c.pct}%</span></td>
+    </tr>`;
+  }
+
+  html += '</tbody></table></div>';
   el.innerHTML = html;
 }
 </script>

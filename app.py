@@ -537,6 +537,7 @@ def dashboard_occupancy():
     cur.execute("""
         SELECT id, name FROM cottages
         WHERE owner_type != 'Собственник'
+          AND property_type != 'Номер для сотрудников'
         ORDER BY position, id
     """)
     cottages = [dict(r) for r in cur.fetchall()]

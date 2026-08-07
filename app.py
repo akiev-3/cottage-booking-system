@@ -505,12 +505,16 @@ def dashboard_owing():
     cur.execute("""
         SELECT b.* FROM bookings b
         JOIN cottages c ON c.id = b.cottage_id
-        WHERE b.check_in <= %s AND b.check_out >= %s
+        WHERE b.check_in <= %s
           AND b.status != 'cancelled'
           AND c.owner_type != 'Собственник'
           AND (c.property_type != 'Номер для сотрудников' OR %s)
+          AND (
+            b.check_out >= %s
+            OR (b.status != 'paid' AND COALESCE(b.total, 0) > COALESCE(b.deposit_paid, 0))
+          )
         ORDER BY b.check_out, b.cottage_name
-    """, (d, d, include_employees))
+    """, (d, include_employees, d))
     bookings = [serialize_booking(r) for r in cur.fetchall()]
     cur.close(); conn.close()
     bookings.sort(key=lambda b: (0 if b["balance"] > 0 and b["status"] != "paid" else 1, b["check_out"]))

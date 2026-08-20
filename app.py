@@ -2270,9 +2270,31 @@ BOOK_HEADERS = ["№","Коттеджи / Квартиры / Номера","Го
 BOOK_WIDTHS  = [6,30,22,13,13,8,8,13,16,18,14,13,13,14,14,13,14,12,12,30]
 CENTER_COLS  = {1,6,7,8,9,10,11,12,13,14,15,16,17,18}
 
-_PAYMENT_LABELS = {"cash": "💵 Наличный", "card": "💳 Безналичный", "": "—"}
+_PAYMENT_LABELS = {"cash": "💵 Наличный", "card": "💳 Безналичный", "transfer": "💳 Перевод", "": "—"}
 
 _STATUS_LABELS = {"active":"Активна","cancelled":"Отменена","paid":"Оплачена"}
+
+def _enrich_payment_info(cur, bookings):
+    """Populate deposit_date/type and balance_date/type from booking_payments (first & last)."""
+    if not bookings:
+        return
+    ids = [b["id"] for b in bookings]
+    cur.execute("""
+        SELECT booking_id, paid_date::text, payment_type
+        FROM booking_payments
+        WHERE booking_id = ANY(%s)
+        ORDER BY booking_id, COALESCE(paid_date, '0001-01-01'), id
+    """, (ids,))
+    by_bid = {}
+    for row in cur.fetchall():
+        by_bid.setdefault(row["booking_id"], []).append(row)
+    for b in bookings:
+        pmts = by_bid.get(b["id"], [])
+        if pmts:
+            b["deposit_date"]         = pmts[0]["paid_date"]
+            b["deposit_payment_type"] = pmts[0]["payment_type"] or ""
+            b["balance_date"]         = pmts[-1]["paid_date"]  if len(pmts) > 1 else None
+            b["payment_type"]         = pmts[-1]["payment_type"] or "" if len(pmts) > 1 else ""
 
 def _effective_total(b):
     """Сумма в сомах. Для отменённых броней — только аванс (невозвратный)."""
@@ -2378,6 +2400,7 @@ def export_excel():
         all_bookings = [serialize_booking(r) for r in cur.fetchall()]
     else:
         all_bookings = []
+    _enrich_payment_info(cur, all_bookings)
     cur.close(); conn.close()
 
     wb = Workbook()
@@ -2425,6 +2448,7 @@ def export_excel_cottage(cottage_id):
     if not cottage: cur.close();conn.close(); return jsonify({"error":"Не найдено"}),404
     cur.execute("SELECT * FROM bookings WHERE cottage_id=%s ORDER BY check_in",(cottage_id,))
     bookings=[serialize_booking(r) for r in cur.fetchall()]
+    _enrich_payment_info(cur, bookings)
     cur.close(); conn.close()
 
     wb=Workbook(); ws=wb.active; ws.title=cottage["name"][:31]

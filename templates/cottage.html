@@ -147,7 +147,7 @@
             <td class="actions-col">
               <div class="row-actions">
                 <button class="btn btn-sm btn-outline" title="Изменить"
-                        onclick='editBooking({{ b.id }}, {{ {"guest_name": b.guest_name, "check_in": b.check_in, "check_out": b.check_out, "guests": b.guests, "nights": b.nights, "discount": b.discount, "deposit_paid": b.deposit_paid, "deposit_date": b.deposit_date, "deposit_payment_type": b.deposit_payment_type, "balance_date": b.balance_date, "extra_per_night": b.extra_per_night, "early_checkin": b.early_checkin, "late_checkout": b.late_checkout, "early_late_fee": b.early_late_fee, "total_before_discount": b.total_before_discount, "payment_type": b.payment_type, "notes": b.notes}|tojson }})'>✏️</button>
+                        onclick='editBooking({{ b.id }}, {{ {"guest_name": b.guest_name, "check_in": b.check_in, "check_out": b.check_out, "guests": b.guests, "nights": b.nights, "discount": b.discount, "extra_per_night": b.extra_per_night, "early_checkin": b.early_checkin, "late_checkout": b.late_checkout, "early_late_fee": b.early_late_fee, "total_before_discount": b.total_before_discount, "notes": b.notes}|tojson }})'>✏️</button>
                 {% if b.status != 'cancelled' %}
                 <button class="btn btn-sm btn-outline" title="Перенести в другой объект"
                         onclick='openTransferModal({{ b.id }}, {{ {"guest_name": b.guest_name, "check_in": b.check_in, "check_out": b.check_out, "nights": b.nights, "total": b.total, "discount": b.discount}|tojson }})'>🔀</button>
@@ -216,37 +216,19 @@
         <input type="number" id="booking-discount" min="0" step="1" placeholder="0" onchange="calcTotal()">
         <small class="hint">вычитается из суммы</small>
       </div>
-      <div class="form-row" style="grid-template-columns:2fr 1.3fr 1.3fr">
-        <div class="form-group">
-          <label>Аванс (сом)</label>
-          <input type="number" id="booking-deposit" min="0" step="1" placeholder="0">
+      <div class="form-group">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+          <label style="margin:0">Платежи</label>
+          <span id="payments-summary" style="font-size:0.82rem;color:var(--muted)"></span>
         </div>
-        <div class="form-group">
-          <label>Дата аванса</label>
-          <input type="text" id="booking-deposit-date" class="form-control" placeholder="—" readonly>
+        <div style="display:grid;grid-template-columns:1fr 110px 110px 30px;gap:4px;margin-bottom:4px;padding:0 2px">
+          <span style="font-size:0.75rem;color:var(--muted)">Сумма, сом</span>
+          <span style="font-size:0.75rem;color:var(--muted)">Дата</span>
+          <span style="font-size:0.75rem;color:var(--muted)">Способ</span>
+          <span></span>
         </div>
-        <div class="form-group">
-          <label>Способ аванса</label>
-          <select id="booking-deposit-type" class="sel">
-            <option value="">—</option>
-            <option value="cash">💵 Нал</option>
-            <option value="card">💳 Безнал</option>
-          </select>
-        </div>
-      </div>
-      <div class="form-row">
-        <div class="form-group">
-          <label>Дата остатка</label>
-          <input type="text" id="booking-balance-date" class="form-control" placeholder="—" readonly>
-        </div>
-        <div class="form-group">
-          <label>Способ остатка</label>
-          <select id="booking-payment" class="sel">
-            <option value="">—</option>
-            <option value="cash">💵 Нал</option>
-            <option value="card">💳 Безнал</option>
-          </select>
-        </div>
+        <div id="payments-list"></div>
+        <button type="button" class="btn btn-sm btn-outline" style="margin-top:6px;width:100%" onclick="addPaymentRow()">+ Добавить платёж</button>
       </div>
       <div id="booking-extra-group" class="form-group" style="display:none">
         <label>Доплата за 1 доп. гостя (сом/ночь)</label>

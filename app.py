@@ -286,6 +286,29 @@ def init_db():
         WHERE so.cottage_id = c.id AND (so.object_type IS NULL OR so.object_type = '')
     """)
 
+    # ── Таблица платежей ─────────────────────────────────
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS booking_payments (
+            id           SERIAL PRIMARY KEY,
+            booking_id   INTEGER NOT NULL REFERENCES bookings(id) ON DELETE CASCADE,
+            amount       NUMERIC(12,2) NOT NULL DEFAULT 0,
+            paid_date    DATE,
+            payment_type VARCHAR(20) DEFAULT '',
+            created_at   TIMESTAMPTZ DEFAULT NOW()
+        )
+    """)
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_payments_booking ON booking_payments (booking_id)")
+    # Однократная миграция: создать платежи из существующих deposit_paid
+    cur.execute("""
+        INSERT INTO booking_payments (booking_id, amount, paid_date, payment_type)
+        SELECT b.id, b.deposit_paid,
+               b.deposit_date,
+               COALESCE(NULLIF(b.deposit_payment_type,''), NULLIF(b.payment_type,''), '')
+        FROM bookings b
+        WHERE b.deposit_paid > 0
+          AND NOT EXISTS (SELECT 1 FROM booking_payments p WHERE p.booking_id = b.id)
+    """)
+
     # ── Индексы для ускорения частых запросов ────────────
     # Брони почти всегда фильтруются/сортируются по объекту и датам,
     # услуги — по объекту и позиции. IF NOT EXISTS делает безопасным
@@ -403,6 +426,26 @@ def fmt_date(iso) -> str:
         return datetime.strptime(str(iso), "%Y-%m-%d").strftime("%d/%m/%Y")
     except Exception:
         return str(iso)
+
+
+def _sync_payments(cur, booking_id):
+    """Пересчитать deposit_paid из таблицы платежей и автоматически обновить статус."""
+    cur.execute("""
+        UPDATE bookings SET
+            deposit_paid = COALESCE((
+                SELECT SUM(amount) FROM booking_payments WHERE booking_id = %s
+            ), 0),
+            status = CASE
+                WHEN status = 'cancelled' THEN 'cancelled'
+                WHEN COALESCE((
+                    SELECT SUM(amount) FROM booking_payments WHERE booking_id = %s
+                ), 0) >= total AND total > 0 THEN 'paid'
+                ELSE 'active'
+            END
+        WHERE id = %s
+        RETURNING *
+    """, (booking_id, booking_id, booking_id))
+    return cur.fetchone()
 
 
 def serialize_booking(row) -> dict:
@@ -1347,31 +1390,39 @@ def create_booking():
     total           = round(max(0, total_before - discount))               # сомы
     rate            = get_rate(cur)        # глобальный курс — для пересчёта в $
     total_som       = total                # учёт ведётся в сомах
-    deposit_paid    = max(0, float(body.get("deposit_paid") or 0))         # сомы
-
     cur.execute("""
         INSERT INTO bookings
             (cottage_id, cottage_name, guest_name, guests,
              check_in, check_out, nights,
-             discount, total_before_discount, total, rate, total_som, notes, deposit_paid, extra_per_night,
-             early_late_fee, early_checkin, late_checkout, payment_type,
-             deposit_date, deposit_payment_type, balance_date)
-        VALUES (%s,%s,%s,%s, %s,%s,%s, %s,%s,%s,%s,%s,%s,%s,%s, %s,%s,%s,%s, %s,%s,%s)
+             discount, total_before_discount, total, rate, total_som, notes, extra_per_night,
+             early_late_fee, early_checkin, late_checkout)
+        VALUES (%s,%s,%s,%s, %s,%s,%s, %s,%s,%s,%s,%s,%s,%s, %s,%s,%s)
         RETURNING *
     """, (cottage_id, cottage["name"], body.get("guest_name", ""), guests,
           ci, co, nights,
-          discount, total_before, total, rate, total_som, body.get("notes", ""), deposit_paid, extra_per_night,
-          early_late_fee, early_checkin, late_checkout, (body.get("payment_type") or ""),
-          body.get("deposit_date") or None,
-          body.get("deposit_payment_type") or "",
-          body.get("balance_date") or None))
+          discount, total_before, total, rate, total_som, body.get("notes", ""), extra_per_night,
+          early_late_fee, early_checkin, late_checkout))
     booking = dict(cur.fetchone())
+    booking_id = booking["id"]
+
+    # Сохранить платежи и пересчитать статус
+    payments = body.get("payments") or []
+    for p in payments:
+        try:
+            amount = float(p.get("amount") or 0)
+        except (TypeError, ValueError):
+            amount = 0
+        if amount <= 0:
+            continue
+        cur.execute("""
+            INSERT INTO booking_payments (booking_id, amount, paid_date, payment_type)
+            VALUES (%s, %s, %s, %s)
+        """, (booking_id, amount, p.get("paid_date") or None, p.get("payment_type") or ""))
+    booking_row = _sync_payments(cur, booking_id)
     conn.commit(); cur.close(); conn.close()
 
-    # Сериализуем даты
-    booking["check_in"]  = str(booking["check_in"])
-    booking["check_out"] = str(booking["check_out"])
-    return jsonify(booking), 201
+    result = serialize_booking(booking_row)
+    return jsonify(result), 201
 
 
 @app.route("/bookings/<int:booking_id>", methods=["PUT"])
@@ -1457,41 +1508,43 @@ def update_booking(booking_id):
     _half          = round(orig_price / 2)
     early_late_fee = _half * (int(early_checkin) + int(late_checkout))
     total_before   = nights * orig_price + extra_per_night * nights + early_late_fee  # сомы
-    discount        = max(0, float(body.get("discount") if body.get("discount") is not None else existing["discount"] or 0))  # сомы
-    total           = round(max(0, total_before - discount))               # сомы
-    rate            = float(existing["rate"] or get_rate(cur))   # курс для пересчёта в $
-    total_som       = total                # учёт ведётся в сомах
-    deposit_paid    = max(0, float(body.get("deposit_paid") if body.get("deposit_paid") is not None else existing.get("deposit_paid") or 0))  # сомы
-    # Если после редактирования сумма выросла и появился остаток — сбрасываем 'paid' → 'active'
-    existing_status = existing.get("status") or "active"
-    new_balance     = round(max(0.0, total - deposit_paid), 2)
-    new_status      = "active" if (existing_status == "paid" and new_balance > 0) else existing_status
+    discount        = max(0, float(body.get("discount") if body.get("discount") is not None else existing["discount"] or 0))
+    total           = round(max(0, total_before - discount))
+    rate            = float(existing["rate"] or get_rate(cur))
+    total_som       = total
 
     cur.execute("""
         UPDATE bookings SET cottage_id=%s, cottage_name=%s, guest_name=%s, guests=%s,
                             check_in=%s, check_out=%s, nights=%s, discount=%s,
                             total_before_discount=%s, total=%s, rate=%s, total_som=%s,
-                            notes=%s, deposit_paid=%s, extra_per_night=%s,
-                            early_late_fee=%s, early_checkin=%s, late_checkout=%s, payment_type=%s,
-                            deposit_date=%s, deposit_payment_type=%s, balance_date=%s,
-                            status=%s
-        WHERE id=%s RETURNING *
+                            notes=%s, extra_per_night=%s,
+                            early_late_fee=%s, early_checkin=%s, late_checkout=%s
+        WHERE id=%s
     """, (cottage_id, cottage["name"],
           body.get("guest_name", existing["guest_name"]), guests,
           ci, co, nights, discount, total_before, total, rate, total_som,
-          body.get("notes", existing["notes"]), deposit_paid, extra_per_night,
+          body.get("notes", existing["notes"]), extra_per_night,
           early_late_fee, early_checkin, late_checkout,
-          (body.get("payment_type") if "payment_type" in body else (existing.get("payment_type") or "")),
-          body.get("deposit_date") if "deposit_date" in body else existing.get("deposit_date"),
-          body.get("deposit_payment_type") if "deposit_payment_type" in body else (existing.get("deposit_payment_type") or ""),
-          body.get("balance_date") if "balance_date" in body else existing.get("balance_date"),
-          new_status,
           booking_id))
-    booking = dict(cur.fetchone())
+
+    # Синхронизировать платежи если переданы, затем пересчитать статус
+    if "payments" in body:
+        cur.execute("DELETE FROM booking_payments WHERE booking_id=%s", (booking_id,))
+        for p in (body["payments"] or []):
+            try:
+                amount = float(p.get("amount") or 0)
+            except (TypeError, ValueError):
+                amount = 0
+            if amount <= 0:
+                continue
+            cur.execute("""
+                INSERT INTO booking_payments (booking_id, amount, paid_date, payment_type)
+                VALUES (%s,%s,%s,%s)
+            """, (booking_id, amount, p.get("paid_date") or None, p.get("payment_type") or ""))
+
+    booking_row = _sync_payments(cur, booking_id)
     conn.commit(); cur.close(); conn.close()
-    booking["check_in"]  = str(booking["check_in"])
-    booking["check_out"] = str(booking["check_out"])
-    return jsonify(booking)
+    return jsonify(serialize_booking(booking_row))
 
 
 @app.route("/checkouts")
@@ -1513,6 +1566,48 @@ def checkouts():
     rows = [dict(r) for r in cur.fetchall()]
     cur.close(); conn.close()
     return jsonify(rows)
+
+
+@app.route("/bookings/<int:booking_id>/payments", methods=["GET"])
+@require_perm("bookings_view")
+def get_payments(booking_id):
+    conn = get_db(); cur = conn.cursor()
+    cur.execute("""
+        SELECT id, booking_id, amount::float, paid_date::text, payment_type
+        FROM booking_payments WHERE booking_id = %s ORDER BY paid_date, id
+    """, (booking_id,))
+    rows = [dict(r) for r in cur.fetchall()]
+    cur.close(); conn.close()
+    return jsonify(rows)
+
+
+@app.route("/bookings/<int:booking_id>/payments", methods=["PUT"])
+@require_perm("bookings_edit")
+def sync_payments(booking_id):
+    """Заменить список платежей целиком и пересчитать статус брони."""
+    payments = request.get_json(silent=True) or []
+    conn = get_db(); cur = conn.cursor()
+    cur.execute("SELECT id FROM bookings WHERE id=%s", (booking_id,))
+    if not cur.fetchone():
+        cur.close(); conn.close()
+        return jsonify({"error": "Бронь не найдена"}), 404
+    cur.execute("DELETE FROM booking_payments WHERE booking_id=%s", (booking_id,))
+    for p in payments:
+        try:
+            amount = float(p.get("amount") or 0)
+        except (TypeError, ValueError):
+            amount = 0
+        if amount <= 0:
+            continue
+        paid_date    = p.get("paid_date") or None
+        payment_type = p.get("payment_type") or ""
+        cur.execute("""
+            INSERT INTO booking_payments (booking_id, amount, paid_date, payment_type)
+            VALUES (%s, %s, %s, %s)
+        """, (booking_id, amount, paid_date, payment_type))
+    booking_row = _sync_payments(cur, booking_id)
+    conn.commit(); cur.close(); conn.close()
+    return jsonify(serialize_booking(booking_row))
 
 
 @app.route("/bookings/<int:booking_id>/status", methods=["PATCH"])

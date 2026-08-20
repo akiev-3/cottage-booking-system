@@ -134,12 +134,60 @@ function initCalendars(allowPast) {
     onChange:(sel)=>{ if(sel[0]){ const m=new Date(sel[0]); m.setDate(m.getDate()+1); fpCheckout.set('minDate', m); } calcTotal(); } });
   fpCheckout = flatpickr('#booking-checkout', { ...base, disable: disableOut });
 }
-let fpDepositDate = null, fpBalanceDate = null;
+let _payments = [];
+
+function renderPayments() {
+  const list = document.getElementById('payments-list');
+  if (!list) return;
+  list.innerHTML = '';
+  _payments.forEach((p, i) => {
+    const row = document.createElement('div');
+    row.style.cssText = 'display:grid;grid-template-columns:1fr 110px 110px 30px;gap:4px;margin-bottom:4px';
+    row.innerHTML = `
+      <input type="number" min="0" step="1" placeholder="Сумма" value="${p.amount || ''}"
+             style="padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:0.9rem;background:var(--bg);color:var(--text)"
+             oninput="_payments[${i}].amount=parseFloat(this.value)||0;updatePaymentSummary()">
+      <input type="text" placeholder="дд/мм/гггг" id="pmt-date-${i}"
+             style="padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:0.9rem;background:var(--bg);color:var(--text)">
+      <select style="padding:6px 4px;border:1px solid var(--border);border-radius:6px;font-size:0.85rem;background:var(--bg);color:var(--text)"
+              onchange="_payments[${i}].payment_type=this.value">
+        <option value="">—</option>
+        <option value="cash"${p.payment_type==='cash'?' selected':''}>Наличные</option>
+        <option value="transfer"${p.payment_type==='transfer'?' selected':''}>Перевод</option>
+        <option value="card"${p.payment_type==='card'?' selected':''}>Карта</option>
+      </select>
+      <button type="button" onclick="removePaymentRow(${i})"
+              style="border:none;background:none;color:var(--muted);font-size:1.1rem;cursor:pointer;padding:0">×</button>
+    `;
+    list.appendChild(row);
+    const fpOpts = { dateFormat:'Y-m-d', altInput:true, altFormat:'d/m/Y', locale:FP_RU,
+      defaultDate: p.paid_date || null,
+      onChange: (sel) => { _payments[i].paid_date = sel[0] ? sel[0].toISOString().slice(0,10) : null; }
+    };
+    flatpickr(`#pmt-date-${i}`, fpOpts);
+  });
+  updatePaymentSummary();
+}
+
+function addPaymentRow() {
+  _payments.push({ amount: 0, paid_date: null, payment_type: '' });
+  renderPayments();
+}
+
+function removePaymentRow(i) {
+  _payments.splice(i, 1);
+  renderPayments();
+}
+
+function updatePaymentSummary() {
+  const el = document.getElementById('payments-summary');
+  if (!el) return;
+  const total = _payments.reduce((s, p) => s + (parseFloat(p.amount) || 0), 0);
+  el.textContent = total > 0 ? `Итого: ${total.toLocaleString('ru-RU')} сом` : '';
+}
+
 document.addEventListener('DOMContentLoaded', () => {
   initCalendars(false);
-  const pdOpts = { dateFormat:'Y-m-d', altInput:true, altFormat:'d/m/Y', locale:FP_RU };
-  fpDepositDate = flatpickr('#booking-deposit-date', pdOpts);
-  fpBalanceDate = flatpickr('#booking-balance-date', pdOpts);
 });
 
 // Показать/скрыть поле доп. гостей в зависимости от типа объекта
@@ -175,17 +223,14 @@ function openCreateBooking() {
   applyExtraFieldVisibility();
   initCalendars(false);
 
-  if (fpDepositDate) fpDepositDate.clear();
-  if (fpBalanceDate) fpBalanceDate.clear();
+  _payments = [];
+  renderPayments();
 
   // Предзаполнение из быстрого бронирования
   if (_quickbook) {
     document.getElementById('booking-guest-name').value = _quickbook.guest_name  || '';
     document.getElementById('booking-guests').value     = _quickbook.guests       || '';
     document.getElementById('booking-discount').value   = _quickbook.discount     || '';
-    document.getElementById('booking-deposit').value    = _quickbook.deposit_paid || '';
-    document.getElementById('booking-deposit-type').value = _quickbook.deposit_payment_type || '';
-    document.getElementById('booking-payment').value    = _quickbook.payment_type || '';
     document.getElementById('booking-notes').value      = _quickbook.notes        || '';
     document.getElementById('booking-early-checkin').checked = !!_quickbook.early_checkin;
     document.getElementById('booking-late-checkout').checked = !!_quickbook.late_checkout;
@@ -209,7 +254,7 @@ function openCreateBooking() {
 }
 
 // Открыть форму редактирования
-function editBooking(id, b) {
+async function editBooking(id, b) {
   excludeRange = { from: b.check_in, to: b.check_out };
   // Восстанавливаем исходную цену из сохранённых данных, чтобы preview не пересчитывался по текущей цене
   const _on = b.nights || 0;
@@ -224,16 +269,11 @@ function editBooking(id, b) {
   document.getElementById('booking-guest-name').value = b.guest_name || '';
   document.getElementById('booking-guests').value     = b.guests || '';
   document.getElementById('booking-discount').value   = b.discount || '';
-  document.getElementById('booking-deposit').value    = b.deposit_paid || '';
   // extra_per_night хранится как суммарная надбавка/сутки → показываем ставку за 1 гостя
   const _eg = Math.max(1, (b.guests || 0) - MAX_GUESTS);
   document.getElementById('booking-extra').value      = b.extra_per_night ? Math.round(b.extra_per_night / _eg) : '';
   document.getElementById('booking-early-checkin').checked = !!b.early_checkin;
   document.getElementById('booking-late-checkout').checked = !!b.late_checkout;
-  document.getElementById('booking-deposit-type').value    = b.deposit_payment_type || '';
-  document.getElementById('booking-payment').value         = b.payment_type || '';
-  if (fpDepositDate) fpDepositDate.setDate(b.deposit_date || null, false);
-  if (fpBalanceDate) fpBalanceDate.setDate(b.balance_date || null, false);
   document.getElementById('booking-notes').value      = b.notes || '';
   applyExtraFieldVisibility();
   updateGuestLimit();
@@ -246,6 +286,19 @@ function editBooking(id, b) {
   }
   fpCheckout.setDate(b.check_out, false);
   calcTotal();
+
+  // Загрузить платежи
+  _payments = [];
+  renderPayments();
+  try {
+    const res = await fetch(`/bookings/${id}/payments`);
+    if (res.ok) {
+      const data = await res.json();
+      _payments = data.map(p => ({ amount: parseFloat(p.amount) || 0, paid_date: p.paid_date || null, payment_type: p.payment_type || '' }));
+      renderPayments();
+    }
+  } catch(_) {}
+
   openModal('modal-booking');
 }
 
@@ -321,15 +374,11 @@ async function submitBookingPage(e) {
     check_out:  co,
     guests:     document.getElementById('booking-guests').value,
     discount:        parseFloat(document.getElementById('booking-discount').value) || 0,
-    deposit_paid:    parseFloat(document.getElementById('booking-deposit').value) || 0,
     extra_per_guest: parseFloat(document.getElementById('booking-extra').value) || 0,
-    early_checkin:        document.getElementById('booking-early-checkin').checked,
-    late_checkout:        document.getElementById('booking-late-checkout').checked,
-    payment_type:         document.getElementById('booking-payment').value,
-    deposit_date:         document.getElementById('booking-deposit-date').value || null,
-    deposit_payment_type: document.getElementById('booking-deposit-type').value,
-    balance_date:         document.getElementById('booking-balance-date').value || null,
-    notes:                document.getElementById('booking-notes').value.trim(),
+    early_checkin:   document.getElementById('booking-early-checkin').checked,
+    late_checkout:   document.getElementById('booking-late-checkout').checked,
+    notes:           document.getElementById('booking-notes').value.trim(),
+    payments:        _payments.filter(p => (parseFloat(p.amount) || 0) > 0),
   };
   const url    = id ? `/bookings/${id}` : '/bookings';
   const method = id ? 'PUT' : 'POST';

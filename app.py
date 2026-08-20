@@ -298,7 +298,7 @@ def init_db():
         )
     """)
     cur.execute("CREATE INDEX IF NOT EXISTS idx_payments_booking ON booking_payments (booking_id)")
-    # Однократная миграция: создать платежи из существующих deposit_paid
+    # Миграция 1: создать платёж-аванс из deposit_paid (однократно)
     cur.execute("""
         INSERT INTO booking_payments (booking_id, amount, paid_date, payment_type)
         SELECT b.id, b.deposit_paid,
@@ -307,6 +307,26 @@ def init_db():
         FROM bookings b
         WHERE b.deposit_paid > 0
           AND NOT EXISTS (SELECT 1 FROM booking_payments p WHERE p.booking_id = b.id)
+    """)
+    # Миграция 2: добавить платёж-остаток для броней, где balance_date указан,
+    # но сумма в booking_payments ещё не покрывает total.
+    # В старой системе balance_date/payment_type хранились без суммы остатка.
+    cur.execute("""
+        INSERT INTO booking_payments (booking_id, amount, paid_date, payment_type)
+        SELECT b.id,
+               ROUND(b.total - COALESCE((SELECT SUM(p.amount) FROM booking_payments p WHERE p.booking_id = b.id), 0)),
+               b.balance_date,
+               COALESCE(NULLIF(b.payment_type, ''), '')
+        FROM bookings b
+        WHERE b.balance_date IS NOT NULL
+          AND b.total > 0
+          AND b.total > COALESCE((SELECT SUM(p.amount) FROM booking_payments p WHERE p.booking_id = b.id), 0)
+    """)
+    # Обновить кэш deposit_paid после обеих миграций
+    cur.execute("""
+        UPDATE bookings SET
+            deposit_paid = COALESCE((SELECT SUM(amount) FROM booking_payments WHERE booking_id = bookings.id), 0)
+        WHERE id IN (SELECT DISTINCT booking_id FROM booking_payments)
     """)
 
     # ── Индексы для ускорения частых запросов ────────────

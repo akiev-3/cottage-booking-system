@@ -2284,40 +2284,53 @@ def export_excel_services_all():
 
 BOOK_HEADERS = ["№","Коттеджи / Квартиры / Номера","Гость","Заезд","Выезд",
                 "Ночей","Гостей","Скидка (сом)","Доп. гости (сом)","Ранний/поздний (сом)",
-                "Сумма (сом)","Аванс (сом)","Дата аванса","Способ аванса",
-                "Остаток (сом)","Дата остатка","Способ остатка",
+                "Сумма (сом)","Оплачено (сом)","Остаток (сом)",
+                "История платежей",
                 "Сумма ($)","Статус","Заметки"]
-BOOK_WIDTHS  = [6,30,22,13,13,8,8,13,16,18,14,13,13,14,14,13,14,12,12,30]
-CENTER_COLS  = {1,6,7,8,9,10,11,12,13,14,15,16,17,18}
+BOOK_WIDTHS  = [6,30,22,13,13,8,8,13,16,18,14,14,13,40,12,12,30]
+CENTER_COLS  = {1,6,7,8,9,10,11,12,13,15,16}
+BOOK_LAST_COL = "Q"   # len(BOOK_HEADERS) = 17
 
+_PMT_SHORT = {"cash": "нал.", "card": "карта", "transfer": "перевод", "": ""}
 _PAYMENT_LABELS = {"cash": "💵 Наличный", "card": "💳 Безналичный", "transfer": "💳 Перевод", "": "—"}
 
 _STATUS_LABELS = {"active":"Активна","cancelled":"Отменена","paid":"Оплачена"}
 
 def _enrich_payment_info(cur, bookings):
-    """Populate deposit_date/type and balance_date/type from booking_payments (first & last)."""
+    """Загружает список платежей для каждой брони из booking_payments."""
     if not bookings:
         return
     ids = [b["id"] for b in bookings]
     cur.execute("""
-        SELECT booking_id, paid_date::text, payment_type
+        SELECT booking_id, amount::float, paid_date::text, payment_type
         FROM booking_payments
         WHERE booking_id = ANY(%s)
         ORDER BY booking_id, COALESCE(paid_date, '0001-01-01'), id
     """, (ids,))
     by_bid = {}
     for row in cur.fetchall():
-        by_bid.setdefault(row["booking_id"], []).append(row)
+        by_bid.setdefault(row["booking_id"], []).append(dict(row))
     for b in bookings:
-        pmts = by_bid.get(b["id"], [])
-        if pmts:
-            b["deposit_date"]         = pmts[0]["paid_date"]
-            b["deposit_payment_type"] = pmts[0]["payment_type"] or ""
-            b["balance_date"]         = pmts[-1]["paid_date"]  if len(pmts) > 1 else None
-            b["payment_type"]         = pmts[-1]["payment_type"] or "" if len(pmts) > 1 else ""
+        b["_payments"] = by_bid.get(b["id"], [])
+
+def _pmt_history(payments):
+    """Строка истории платежей для Excel-ячейки."""
+    if not payments:
+        return "—"
+    parts = []
+    for p in payments:
+        amt   = int(round(float(p.get("amount") or 0)))
+        d     = p.get("paid_date") or ""
+        dstr  = f"{d[8:10]}.{d[5:7]}.{d[:4]}" if len(d) == 10 else "б/д"
+        ptype = _PMT_SHORT.get(p.get("payment_type") or "", "")
+        line  = f"{amt:,} сом · {dstr}".replace(",", " ")
+        if ptype:
+            line += f" · {ptype}"
+        parts.append(line)
+    return "\n".join(parts)
 
 def _effective_total(b):
-    """Сумма в сомах. Для отменённых броней — только аванс (невозвратный)."""
+    """Сумма в сомах. Для отменённых броней — только оплаченное (невозвратный аванс)."""
     if b.get("status") == "cancelled":
         return float(b.get("deposit_paid") or 0)
     return float(b.get("total") or 0)
@@ -2336,8 +2349,8 @@ def _booking_row(b, seq_num):
     discount = round(b.get("discount") or 0)
     extra    = round((b.get("extra_per_night") or 0) * (b.get("nights") or 0))
     early    = round(b.get("early_late_fee") or 0)
-    deposit  = round(b.get("deposit_paid") or 0)
-    balance  = round(b.get("balance") or 0)    # остаток к оплате (0 для отменённых)
+    paid     = round(b.get("deposit_paid") or 0)
+    balance  = round(b.get("balance") or 0)
     return [
         seq_num, b["cottage_name"], b["guest_name"],
         fmt_date(b["check_in"]), fmt_date(b["check_out"]),
@@ -2345,14 +2358,11 @@ def _booking_row(b, seq_num):
         f"-{discount}" if discount else "—",
         extra if extra else "—",
         early if early else "—",
-        round(_effective_total(b)),            # Сумма (сом)
-        deposit if deposit else "—",           # Аванс (сом)
-        fmt_date(b["deposit_date"]) if b.get("deposit_date") else "—",           # Дата аванса
-        _PAYMENT_LABELS.get(b.get("deposit_payment_type") or "", "—"),           # Способ аванса
-        "—" if b.get("status") == "cancelled" else balance,                      # Остаток (сом)
-        fmt_date(b["balance_date"]) if b.get("balance_date") else "—",           # Дата остатка
-        _PAYMENT_LABELS.get(b.get("payment_type") or "", "—"),                   # Способ остатка
-        _effective_usd(b),                     # Сумма ($)
+        round(_effective_total(b)),                                        # Сумма (сом)
+        paid if paid else "—",                                             # Оплачено (сом)
+        "—" if b.get("status") == "cancelled" else (balance if balance else "—"),  # Остаток (сом)
+        _pmt_history(b.get("_payments", [])),                              # История платежей
+        _effective_usd(b),                                                 # Сумма ($)
         _STATUS_LABELS.get(b.get("status") or "active", "Активна"),
         (b.get("notes") or "").replace("\n", " "),
     ]
@@ -2375,17 +2385,22 @@ def _write_rows(ws, bookings, start=2):
     for seq, (row_i, b) in enumerate(zip(range(start, start + len(bookings)), bookings), 1):
         status   = b.get("status") or "active"
         is_past  = str(b["check_out"]) < today
+        pmts_cnt = len(b.get("_payments") or [])
         if status == "cancelled":
-            row_fill = PatternFill("solid", fgColor="FFE4E4")   # розовый — отменена
+            row_fill = PatternFill("solid", fgColor="FFE4E4")
         elif is_past:
-            row_fill = PatternFill("solid", fgColor="F4F6F9")   # серый — прошедшая
+            row_fill = PatternFill("solid", fgColor="F4F6F9")
         else:
             row_fill = PatternFill("solid", fgColor="FFFFFF")
         for col, val in enumerate(_booking_row(b, seq), 1):
             cell = ws.cell(row=row_i, column=col, value=val)
             cell.fill=row_fill; cell.border=border
-            if col in CENTER_COLS:
-                cell.alignment = Alignment(horizontal="center")
+            if col == 14:   # История платежей — перенос строк
+                cell.alignment = Alignment(wrap_text=True, vertical="top")
+            elif col in CENTER_COLS:
+                cell.alignment = Alignment(horizontal="center", vertical="center")
+        if pmts_cnt > 1:
+            ws.row_dimensions[row_i].height = max(15 * pmts_cnt, 30)
         last = row_i
     return last
 
@@ -2396,8 +2411,8 @@ def _write_totals(ws, bookings, total_row):
     vals   = {1:"ИТОГО", 6:sum(b["nights"] for b in bookings),
               11:round(sum(_effective_total(b) for b in bookings)),
               12:round(sum((b.get("deposit_paid") or 0) for b in bookings)),
-              15:round(sum((b.get("balance") or 0) for b in bookings)),
-              18:round(sum(_effective_usd(b) for b in bookings))}
+              13:round(sum((b.get("balance") or 0) for b in bookings if b.get("status") != "cancelled")),
+              15:round(sum(_effective_usd(b) for b in bookings))}
     for col in range(1, len(BOOK_HEADERS)+1):
         cell = ws.cell(row=total_row, column=col, value=vals.get(col))
         cell.font=bold; cell.fill=fill; cell.border=border
@@ -2432,7 +2447,7 @@ def export_excel():
     last = _write_rows(ws, all_bookings, start=2)
     if all_bookings: _write_totals(ws, all_bookings, last + 1)
     ws.freeze_panes = "A2"
-    ws.auto_filter.ref = f"A1:T{max(last, 2)}"
+    ws.auto_filter.ref = f"A1:{BOOK_LAST_COL}{max(last, 2)}"
 
     # Дополнительные листы по типам объектов компании
     _BOOKING_TYPE_SHEETS = [
@@ -2451,7 +2466,7 @@ def export_excel():
         last2 = _write_rows(ws2, type_bookings, start=2)
         if type_bookings: _write_totals(ws2, type_bookings, last2 + 1)
         ws2.freeze_panes = "A2"
-        ws2.auto_filter.ref = f"A1:T{max(last2, 2)}"
+        ws2.auto_filter.ref = f"A1:{BOOK_LAST_COL}{max(last2, 2)}"
 
     buf = io.BytesIO(); wb.save(buf); buf.seek(0)
     return send_file(buf,
@@ -2472,7 +2487,7 @@ def export_excel_cottage(cottage_id):
     cur.close(); conn.close()
 
     wb=Workbook(); ws=wb.active; ws.title=cottage["name"][:31]
-    ws.merge_cells("A1:T1"); tc=ws["A1"]
+    ws.merge_cells(f"A1:{BOOK_LAST_COL}1"); tc=ws["A1"]
     tc.value=f"{cottage['name']}  |  до {cottage['capacity']} чел.  |  {int(cottage['price_per_day'])} сом/сутки"
     tc.font=Font(bold=True,size=12); tc.fill=PatternFill("solid",fgColor="EEF2FF")
     tc.alignment=Alignment(horizontal="left",vertical="center"); ws.row_dimensions[1].height=26
@@ -2636,6 +2651,7 @@ def export_excel_by_owner(owner_type):
         all_bookings = [serialize_booking(r) for r in cur.fetchall()]
     else:
         all_bookings = []
+    _enrich_payment_info(cur, all_bookings)
     cur.close(); conn.close()
 
     wb = Workbook()
@@ -2644,11 +2660,11 @@ def export_excel_by_owner(owner_type):
     last = _write_rows(ws, all_bookings, start=2)
     if all_bookings: _write_totals(ws, all_bookings, last + 1)
     ws.freeze_panes = "A2"
-    ws.auto_filter.ref = f"A1:T{last}"
+    ws.auto_filter.ref = f"A1:{BOOK_LAST_COL}{last}"
 
     for c in cottages:
         ws2 = wb.create_sheet(c["name"][:28])
-        ws2.merge_cells("A1:T1"); tc = ws2["A1"]
+        ws2.merge_cells(f"A1:{BOOK_LAST_COL}1"); tc = ws2["A1"]
         tc.value = f"{c['name']}  |  до {c['capacity']} чел.  |  {int(c['price_per_day'] or 0)} сом/сутки"
         tc.font  = Font(bold=True, size=12, color="2C3E50")
         tc.fill  = PatternFill("solid", fgColor="EEF2FF")

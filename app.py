@@ -2506,7 +2506,7 @@ def export_excel_cottage(cottage_id):
 # Все таблицы выгружаются в один файл .json; восстановление полностью
 # заменяет текущие данные данными из файла (внутри транзакции).
 # Порядок таблиц учитывает внешние ключи: родители раньше детей.
-_BACKUP_TABLES = ["cottages", "service_catalog", "bookings", "service_orders", "settings"]
+_BACKUP_TABLES = ["cottages", "service_catalog", "bookings", "booking_payments", "service_orders", "settings"]
 
 
 @app.route("/backup/download")
@@ -2543,7 +2543,7 @@ def backup_restore():
 
     conn = get_db(); cur = conn.cursor()
     try:
-        # Чистим в порядке дети → родители
+        # Чистим в порядке дети → родители (CASCADE не нужен, но явно безопаснее)
         for t in reversed(_BACKUP_TABLES):
             cur.execute(f"DELETE FROM {t}")
         # Вставляем в порядке родители → дети
@@ -2568,6 +2568,37 @@ def backup_restore():
                     f"SELECT setval(pg_get_serial_sequence('{t}', 'id'), "
                     f"GREATEST((SELECT COALESCE(MAX(id), 0) FROM {t}), 1))"
                 )
+
+        # Если бэкап старый (до введения booking_payments) — пересобрать платежи
+        # из deposit_paid + balance_date прямо здесь, не дожидаясь рестарта сервера.
+        # Идемпотентно: если booking_payments уже восстановлен из бэкапа, NOT EXISTS
+        # и условие total > SUM(payments) не сработают.
+        cur.execute("""
+            INSERT INTO booking_payments (booking_id, amount, paid_date, payment_type)
+            SELECT b.id, b.deposit_paid, b.deposit_date,
+                   COALESCE(NULLIF(b.deposit_payment_type,''), NULLIF(b.payment_type,''), '')
+            FROM bookings b
+            WHERE b.deposit_paid > 0
+              AND NOT EXISTS (SELECT 1 FROM booking_payments p WHERE p.booking_id = b.id)
+        """)
+        cur.execute("""
+            INSERT INTO booking_payments (booking_id, amount, paid_date, payment_type)
+            SELECT b.id,
+                   ROUND(b.total - COALESCE((SELECT SUM(p.amount) FROM booking_payments p WHERE p.booking_id = b.id), 0)),
+                   b.balance_date,
+                   COALESCE(NULLIF(b.payment_type, ''), '')
+            FROM bookings b
+            WHERE b.balance_date IS NOT NULL
+              AND b.total > 0
+              AND b.total > COALESCE((SELECT SUM(p.amount) FROM booking_payments p WHERE p.booking_id = b.id), 0)
+        """)
+        cur.execute("""
+            UPDATE bookings SET
+                deposit_paid = COALESCE(
+                    (SELECT SUM(amount) FROM booking_payments WHERE booking_id = bookings.id), 0)
+            WHERE id IN (SELECT DISTINCT booking_id FROM booking_payments)
+        """)
+
         conn.commit()
     except Exception as e:
         conn.rollback(); cur.close(); conn.close()

@@ -156,7 +156,7 @@
             {% if can('services_delete') %}<th class="cb-col"><input type="checkbox" id="orders-check-all" title="Выбрать все" onchange="toggleAllOrders(this)"></th>{% endif %}
             <th class="num-col">#</th><th>Дата начала</th><th>Дата оконч.</th>
             <th>Услуга</th><th>Категория</th><th>Тип объекта</th><th>Объект</th>
-            <th>Кол-во</th><th>Цена</th><th>Итого</th><th>Оплата</th><th>Дата оплаты</th>
+            <th>Кол-во</th><th>Цена</th><th>Итого</th><th>Оплачено</th>
             <th>Гос. номер</th><th>Заметки</th><th>Статус</th>{% if can('services_edit') or can('services_delete') %}<th></th>{% endif %}
           </tr>
         </thead>
@@ -174,12 +174,7 @@
             <td>{{ o.quantity }}</td>
             <td>{{ "%.0f"|format(o.price) }} сом</td>
             <td><strong>{{ "%.0f"|format(o.total) }} сом</strong></td>
-            <td>
-              {% if o.payment_type == 'cash' %}<span class="pay-badge pay-cash">💵 Нал</span>
-              {% elif o.payment_type == 'card' %}<span class="pay-badge pay-card">💳 Безнал</span>
-              {% else %}—{% endif %}
-            </td>
-            <td>{% if o.payment_date %}{{ o.payment_date|fmtdate }}{% else %}—{% endif %}</td>
+            <td>{% if o.paid_amount %}<span class="deposit-badge">{{ "%.0f"|format(o.paid_amount) }}</span>{% else %}—{% endif %}</td>
             <td>{% if o.plate %}<span class="plate-badge">{{ o.plate }}</span>{% else %}—{% endif %}</td>
             <td class="notes-col" title="{{ o.notes }}"><div class="notes-inner">{{ o.notes }}</div></td>
             <td>
@@ -354,19 +349,19 @@
         </div>
       </div>
 
-      <div class="form-row">
-        <div class="form-group">
-          <label>Способ оплаты</label>
-          <select id="order-payment" class="sel">
-            <option value="">— не указано</option>
-            <option value="cash">💵 Нал</option>
-            <option value="card">💳 Безнал</option>
-          </select>
+      <div class="form-group">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+          <label style="margin:0">Платежи</label>
+          <span id="svc-payments-summary" style="font-size:0.82rem;color:var(--muted)"></span>
         </div>
-        <div class="form-group">
-          <label>Дата оплаты</label>
-          <input type="text" id="order-payment-date" class="form-control" placeholder="—" readonly>
+        <div style="display:grid;grid-template-columns:1fr 110px 110px 30px;gap:4px;margin-bottom:4px;padding:0 2px">
+          <span style="font-size:0.75rem;color:var(--muted)">Сумма, сом</span>
+          <span style="font-size:0.75rem;color:var(--muted)">Дата</span>
+          <span style="font-size:0.75rem;color:var(--muted)">Способ</span>
+          <span></span>
         </div>
+        <div id="svc-payments-list"></div>
+        <button type="button" class="btn btn-sm btn-outline" style="margin-top:6px;width:100%" onclick="addSvcPaymentRow()">+ Добавить платёж</button>
       </div>
 
       <div class="form-group">
@@ -572,27 +567,80 @@ function calcOrderTotal() {
   block.style.display='flex';
 }
 
+// ── Платежи услуг ────────────────────────────────────────
+let _svcPayments = [];
+
+function renderSvcPayments() {
+  const list = document.getElementById('svc-payments-list');
+  if (!list) return;
+  list.innerHTML = '';
+  _svcPayments.forEach((p, i) => {
+    const row = document.createElement('div');
+    row.style.cssText = 'display:grid;grid-template-columns:1fr 110px 110px 30px;gap:4px;margin-bottom:4px';
+    row.innerHTML = `
+      <input type="number" min="0" step="1" placeholder="Сумма" value="${p.amount || ''}"
+             style="padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:0.9rem;background:var(--bg);color:var(--text)"
+             oninput="_svcPayments[${i}].amount=parseFloat(this.value)||0;updateSvcPaymentSummary()">
+      <input type="text" placeholder="дд/мм/гггг" id="svc-pmt-date-${i}"
+             style="padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:0.9rem;background:var(--bg);color:var(--text)">
+      <select style="padding:6px 4px;border:1px solid var(--border);border-radius:6px;font-size:0.85rem;background:var(--bg);color:var(--text)"
+              onchange="_svcPayments[${i}].payment_type=this.value">
+        <option value="">—</option>
+        <option value="cash"${p.payment_type==='cash'?' selected':''}>Наличные</option>
+        <option value="transfer"${p.payment_type==='transfer'?' selected':''}>Перевод</option>
+        <option value="card"${p.payment_type==='card'?' selected':''}>Карта</option>
+      </select>
+      <button type="button" onclick="removeSvcPaymentRow(${i})"
+              style="border:none;background:none;color:var(--muted);font-size:1.1rem;cursor:pointer;padding:0">×</button>
+    `;
+    list.appendChild(row);
+    flatpickr(`#svc-pmt-date-${i}`, {
+      dateFormat:'Y-m-d', altInput:true, altFormat:'d/m/Y',
+      locale: typeof FP_RU !== 'undefined' ? FP_RU : {},
+      defaultDate: p.paid_date || null,
+      onChange: (sel) => { _svcPayments[i].paid_date = sel[0] ? sel[0].toISOString().slice(0,10) : null; }
+    });
+  });
+  updateSvcPaymentSummary();
+}
+
+function addSvcPaymentRow() {
+  _svcPayments.push({ amount: 0, paid_date: null, payment_type: '' });
+  renderSvcPayments();
+}
+
+function removeSvcPaymentRow(i) {
+  _svcPayments.splice(i, 1);
+  renderSvcPayments();
+}
+
+function updateSvcPaymentSummary() {
+  const el = document.getElementById('svc-payments-summary');
+  if (!el) return;
+  const total = _svcPayments.reduce((s, p) => s + (parseFloat(p.amount) || 0), 0);
+  el.textContent = total > 0 ? `Итого: ${total.toLocaleString('ru-RU')} сом` : '';
+}
+
 function openNewOrder() {
   document.getElementById('order-id').value = '';
   document.getElementById('order-modal-title').textContent = 'Новый заказ услуги';
   document.getElementById('form-order').reset();
-  if (window._fpOrderPayDate) window._fpOrderPayDate.clear();
   document.getElementById('order-date').value = new Date().toISOString().slice(0,10);
   isParking = false;
   document.getElementById('parking-group').style.display = 'none';
   document.getElementById('qty-group').style.display = 'block';
   document.getElementById('order-total-block').style.display = 'none';
+  _svcPayments = [];
+  renderSvcPayments();
   onOwnerTypeChange();
   openModal('modal-order');
 }
 
-function openEditOrder(data) {
+async function openEditOrder(data) {
   document.getElementById('order-id').value = data.id;
   document.getElementById('order-modal-title').textContent = 'Редактировать заказ';
-  // Сначала выставляем тип объекта и перестраиваем дропдауны
   document.getElementById('order-objtype').value = data.object_type || 'Коттедж';
   onOwnerTypeChange();
-  // Услуга из прайса (если есть)
   const svcSel = document.getElementById('order-service');
   svcSel.value = data.service_id || '';
   if (data.service_id) {
@@ -609,10 +657,21 @@ function openEditOrder(data) {
   document.getElementById('order-qty').value          = data.quantity     || 1;
   document.getElementById('order-price').value        = data.price        || 0;
   document.getElementById('order-plate').value        = data.plate        || '';
-  document.getElementById('order-payment').value      = data.payment_type || '';
-  if (window._fpOrderPayDate) window._fpOrderPayDate.setDate(data.payment_date || null, false);
   document.getElementById('order-notes').value        = data.notes        || '';
   calcOrderTotal();
+
+  // Загрузить платежи
+  _svcPayments = [];
+  renderSvcPayments();
+  try {
+    const res = await fetch(`/service-orders/${data.id}/payments`);
+    if (res.ok) {
+      const pmts = await res.json();
+      _svcPayments = pmts.map(p => ({ amount: parseFloat(p.amount)||0, paid_date: p.paid_date||null, payment_type: p.payment_type||'' }));
+      renderSvcPayments();
+    }
+  } catch(_) {}
+
   openModal('modal-order');
 }
 
@@ -630,9 +689,8 @@ async function submitOrder(e) {
     quantity:     document.getElementById('order-qty').value,
     price:        document.getElementById('order-price').value,
     plate:        document.getElementById('order-plate').value.toUpperCase(),
-    payment_type: document.getElementById('order-payment').value,
-    payment_date: document.getElementById('order-payment-date').value || null,
     notes:        document.getElementById('order-notes').value.trim(),
+    payments:     _svcPayments.filter(p => (parseFloat(p.amount)||0) > 0),
   };
   if (!body.service_id && !body.custom_name) { showToast('Введите название услуги','error'); return; }
   const url    = orderId ? '/service-orders/' + orderId : '/service-orders';
@@ -799,10 +857,6 @@ async function bulkDeleteCatalog() {
 // Инициализация
 document.getElementById('order-date').value = new Date().toISOString().slice(0,10);
 onOwnerTypeChange();
-window._fpOrderPayDate = flatpickr('#order-payment-date', {
-  dateFormat:'Y-m-d', altInput:true, altFormat:'d/m/Y', locale: typeof FP_RU !== 'undefined' ? FP_RU : {}
-});
-
 // Восстановление активных вкладок и фильтров после перезагрузки
 (function restoreTabs() {
   switchTab(localStorage.getItem('svcTab') || 'orders');

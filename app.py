@@ -329,6 +329,36 @@ def init_db():
         WHERE id IN (SELECT DISTINCT booking_id FROM booking_payments)
     """)
 
+    # ── Таблица платежей для услуг ───────────────────────
+    cur.execute("ALTER TABLE service_orders ADD COLUMN IF NOT EXISTS paid_amount FLOAT DEFAULT 0")
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS service_payments (
+            id         SERIAL PRIMARY KEY,
+            order_id   INTEGER NOT NULL REFERENCES service_orders(id) ON DELETE CASCADE,
+            amount     NUMERIC(12,2) NOT NULL DEFAULT 0,
+            paid_date  DATE,
+            payment_type VARCHAR(20) DEFAULT '',
+            created_at TIMESTAMPTZ DEFAULT NOW()
+        )
+    """)
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_svc_payments_order ON service_payments (order_id)")
+    # Миграция: для оплаченных заказов создать платёж на полную сумму
+    cur.execute("""
+        INSERT INTO service_payments (order_id, amount, paid_date, payment_type)
+        SELECT so.id, so.total, so.payment_date,
+               COALESCE(NULLIF(so.payment_type, ''), '')
+        FROM service_orders so
+        WHERE so.status = 'paid'
+          AND so.total > 0
+          AND NOT EXISTS (SELECT 1 FROM service_payments p WHERE p.order_id = so.id)
+    """)
+    # Обновить кэш paid_amount
+    cur.execute("""
+        UPDATE service_orders SET
+            paid_amount = COALESCE((SELECT SUM(amount) FROM service_payments WHERE order_id = service_orders.id), 0)
+        WHERE id IN (SELECT DISTINCT order_id FROM service_payments)
+    """)
+
     # ── Индексы для ускорения частых запросов ────────────
     # Брони почти всегда фильтруются/сортируются по объекту и датам,
     # услуги — по объекту и позиции. IF NOT EXISTS делает безопасным
@@ -465,6 +495,23 @@ def _sync_payments(cur, booking_id):
         WHERE id = %s
         RETURNING *
     """, (booking_id, booking_id, booking_id))
+    return cur.fetchone()
+
+
+def _sync_service_payments(cur, order_id):
+    """Пересчитать paid_amount из service_payments и автоматически обновить статус."""
+    cur.execute("""
+        UPDATE service_orders SET
+            paid_amount = COALESCE((SELECT SUM(amount) FROM service_payments WHERE order_id = %s), 0),
+            status = CASE
+                WHEN status = 'cancelled' THEN 'cancelled'
+                WHEN COALESCE((SELECT SUM(amount) FROM service_payments WHERE order_id = %s), 0) >= total
+                     AND total > 0 THEN 'paid'
+                ELSE 'active'
+            END
+        WHERE id = %s
+        RETURNING *
+    """, (order_id, order_id, order_id))
     return cur.fetchone()
 
 
@@ -1983,16 +2030,24 @@ def create_service_order():
     cur.execute("""
         INSERT INTO service_orders
             (service_id, service_name, category, cottage_id, cottage_name,
-             service_date, end_date, quantity, price, total, plate, notes, object_type, payment_type, payment_date, position)
-        VALUES (%s,%s,%s,%s,%s, %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
+             service_date, end_date, quantity, price, total, plate, notes, object_type, position)
+        VALUES (%s,%s,%s,%s,%s, %s,%s,%s,%s,%s,%s,%s,%s,
                 (SELECT COALESCE(MAX(position),0)+1 FROM service_orders)) RETURNING *
     """, (svc["id"], service_name, svc["category"],
           cottage_id, cottage_name,
           body["service_date"], end_date, qty, price, total,
-          body.get("plate",""), body.get("notes",""), object_type,
-          body.get("payment_type") or "", body.get("payment_date") or None))
-    order = dict(cur.fetchone())
+          body.get("plate",""), body.get("notes",""), object_type))
+    order_row = cur.fetchone()
+    order_id  = order_row["id"]
+    for p in (body.get("payments") or []):
+        try:    amount = float(p.get("amount") or 0)
+        except: amount = 0
+        if amount <= 0: continue
+        cur.execute("INSERT INTO service_payments (order_id, amount, paid_date, payment_type) VALUES (%s,%s,%s,%s)",
+                    (order_id, amount, p.get("paid_date") or None, p.get("payment_type") or ""))
+    order_row = _sync_service_payments(cur, order_id)
     conn.commit(); cur.close(); conn.close()
+    order = dict(order_row)
     for f in ("service_date", "end_date", "payment_date"):
         if isinstance(order.get(f), date):
             order[f] = order[f].isoformat()
@@ -2051,26 +2106,72 @@ def update_service_order(order_id):
     total        = round(qty * price)
     service_name = body.get("custom_name","").strip() or svc["name"]
 
-    payment_type = body.get("payment_type") if "payment_type" in body else (existing.get("payment_type") or "")
-    payment_date = body.get("payment_date") if "payment_date" in body else existing.get("payment_date")
     cur.execute("""
         UPDATE service_orders SET
             service_id=%s, service_name=%s, category=%s,
             cottage_id=%s, cottage_name=%s,
             service_date=%s, end_date=%s, quantity=%s,
-            price=%s, total=%s, plate=%s, notes=%s, object_type=%s, payment_type=%s, payment_date=%s
+            price=%s, total=%s, plate=%s, notes=%s, object_type=%s
         WHERE id=%s RETURNING *
     """, (svc["id"], service_name, svc["category"],
           cottage_id, cottage_name,
           body["service_date"], end_date, qty, price, total,
-          body.get("plate",""), body.get("notes",""), object_type, payment_type,
-          payment_date or None, order_id))
-    order = dict(cur.fetchone())
+          body.get("plate",""), body.get("notes",""), object_type, order_id))
+    if "payments" in body:
+        cur.execute("DELETE FROM service_payments WHERE order_id=%s", (order_id,))
+        for p in (body["payments"] or []):
+            try:    amount = float(p.get("amount") or 0)
+            except: amount = 0
+            if amount <= 0: continue
+            cur.execute("INSERT INTO service_payments (order_id, amount, paid_date, payment_type) VALUES (%s,%s,%s,%s)",
+                        (order_id, amount, p.get("paid_date") or None, p.get("payment_type") or ""))
+    order_row = _sync_service_payments(cur, order_id)
     conn.commit(); cur.close(); conn.close()
+    order = dict(order_row)
     for f in ("service_date", "end_date", "payment_date"):
         if isinstance(order.get(f), date):
             order[f] = order[f].isoformat()
     return jsonify(order)
+
+
+@app.route("/service-orders/<int:order_id>/payments", methods=["GET"])
+@require_perm("services_view")
+def get_service_payments(order_id):
+    conn = get_db(); cur = conn.cursor()
+    cur.execute("""
+        SELECT id, order_id, amount::float, paid_date::text, payment_type
+        FROM service_payments WHERE order_id = %s
+        ORDER BY COALESCE(paid_date, '0001-01-01'), id
+    """, (order_id,))
+    rows = [dict(r) for r in cur.fetchall()]
+    cur.close(); conn.close()
+    return jsonify(rows)
+
+
+@app.route("/service-orders/<int:order_id>/payments", methods=["PUT"])
+@require_perm("services_edit")
+def sync_service_payments(order_id):
+    payments = request.get_json(silent=True) or []
+    conn = get_db(); cur = conn.cursor()
+    cur.execute("DELETE FROM service_payments WHERE order_id = %s", (order_id,))
+    for p in payments:
+        try:
+            amount = float(p.get("amount") or 0)
+        except (TypeError, ValueError):
+            amount = 0
+        if amount <= 0:
+            continue
+        paid_date    = p.get("paid_date") or None
+        payment_type = p.get("payment_type") or ""
+        cur.execute("""
+            INSERT INTO service_payments (order_id, amount, paid_date, payment_type)
+            VALUES (%s, %s, %s, %s)
+        """, (order_id, amount, paid_date, payment_type))
+    row = _sync_service_payments(cur, order_id)
+    conn.commit(); cur.close(); conn.close()
+    if not row:
+        return jsonify({"error": "Заказ не найден"}), 404
+    return jsonify({"ok": True, "status": row["status"], "paid_amount": float(row["paid_amount"] or 0)})
 
 
 @app.route("/service-orders/<int:order_id>/status", methods=["PATCH"])
@@ -2117,14 +2218,17 @@ _SVC_STATUS_RU = {"active": "Активен", "paid": "Оплачен", "cancell
 
 def _write_services_to_sheet(ws, orders):
     """Записывает данные заказов услуг в существующий лист."""
+    # Колонки: 1-9 основные, 10=Оплачено, 11=Остаток, 12=История платежей, 13=Гос.номер, 14=Статус, 15=Заметки
     headers    = ["№","Дата начала","Дата окончания","Категория","Услуга",
-                  "Коттеджи / Квартиры / Номера","Кол-во","Цена (сом)","Итого (сом)","Оплата","Дата оплаты","Гос. номер","Статус","Заметки"]
-    col_widths = [6, 14, 16, 18, 34, 30, 8, 13, 14, 14, 14, 16, 12, 30]
+                  "Коттеджи / Квартиры / Номера","Кол-во","Цена (сом)","Итого (сом)",
+                  "Оплачено (сом)","Остаток (сом)","История платежей",
+                  "Гос. номер","Статус","Заметки"]
+    col_widths = [6, 14, 16, 18, 34, 30, 8, 13, 14, 13, 13, 38, 16, 12, 30]
     hf     = Font(bold=True, color="FFFFFF")
     hfill  = _header_fill("4F6EF7")
     border = _thin_border()
     center = Alignment(horizontal="center", vertical="center")
-    CENTER = {1, 2, 3, 7, 8, 9, 10, 11, 13}
+    CENTER = {1, 2, 3, 7, 8, 9, 10, 11, 14}
 
     for col, (h, w) in enumerate(zip(headers, col_widths), 1):
         cell = ws.cell(row=1, column=col, value=h)
@@ -2133,7 +2237,10 @@ def _write_services_to_sheet(ws, orders):
     ws.row_dimensions[1].height = 22
 
     for seq, o in enumerate(orders, 1):
-        ri = seq + 1
+        ri       = seq + 1
+        paid     = round(float(o.get("paid_amount") or 0))
+        total_v  = round(float(o.get("total") or 0))
+        balance  = max(0, total_v - paid) if o.get("status") != "cancelled" else 0
         values = [
             seq,
             fmt_date(o["service_date"]) if o.get("service_date") else "",
@@ -2143,9 +2250,10 @@ def _write_services_to_sheet(ws, orders):
             o.get("cottage_name","") or "—",
             o.get("quantity", 1),
             o.get("price", 0),
-            o.get("total", 0),
-            _PAYMENT_LABELS.get(o.get("payment_type") or "", "—"),
-            fmt_date(o["payment_date"]) if o.get("payment_date") else "—",
+            total_v,
+            paid    if paid    else "—",         # Оплачено
+            balance if balance else "—",         # Остаток
+            _pmt_history(o.get("_payments", [])),# История платежей
             o.get("plate","") or "—",
             _SVC_STATUS_RU.get(o.get("status") or "active", "Активен"),
             (o.get("notes") or "").replace("\n", " "),
@@ -2153,10 +2261,14 @@ def _write_services_to_sheet(ws, orders):
         row_fill = PatternFill("solid", fgColor="FFE4E4" if o.get("status") == "cancelled" else "FFFFFF")
         for col, val in enumerate(values, 1):
             cell = ws.cell(row=ri, column=col, value=val)
-            cell.fill = row_fill
-            cell.border = border
-            if col in CENTER:
+            cell.fill = row_fill; cell.border = border
+            if col == 12:
+                cell.alignment = Alignment(wrap_text=True, vertical="top")
+            elif col in CENTER:
                 cell.alignment = Alignment(horizontal="center")
+        pmts_cnt = len(o.get("_payments") or [])
+        if pmts_cnt > 1:
+            ws.row_dimensions[ri].height = max(15 * pmts_cnt, 30)
 
     if orders:
         last = len(orders) + 2
@@ -2166,13 +2278,15 @@ def _write_services_to_sheet(ws, orders):
             cell = ws.cell(row=last, column=col)
             cell.font=bold; cell.fill=fill; cell.border=border
         ws.cell(row=last, column=1, value="ИТОГО").font = bold
-        # Отменённые заказы не учитываются в сумме
-        total_cell = ws.cell(row=last, column=9, value=round(sum(o.get("total",0) for o in orders if o.get("status") != "cancelled")))
-        total_cell.font = bold
-        total_cell.alignment = Alignment(horizontal="center")
+        active_orders = [o for o in orders if o.get("status") != "cancelled"]
+        for col, val in [(9, round(sum(o.get("total",0) for o in active_orders))),
+                         (10, round(sum(o.get("paid_amount",0) for o in active_orders))),
+                         (11, round(sum(max(0,float(o.get("total",0))-float(o.get("paid_amount",0))) for o in active_orders)))]:
+            c = ws.cell(row=last, column=col, value=val)
+            c.font=bold; c.alignment=Alignment(horizontal="center")
 
     ws.freeze_panes = "A2"
-    ws.auto_filter.ref = f"A1:N{max(len(orders),1)+1}"
+    ws.auto_filter.ref = f"A1:O{max(len(orders),1)+1}"
 
 
 def _build_services_excel(orders, sheet_title):
@@ -2184,9 +2298,10 @@ def _build_services_excel(orders, sheet_title):
     return wb
 
 
-def _fetch_service_orders(cur, object_type=None):
+def _fetch_service_orders(cur, object_type=None, enrich_payments=False):
     """object_type — каноническое название типа ('Коттедж', 'Номер отеля', ...).
-    Фильтрует по сохранённому object_type, а для старых записей — по типу связанного объекта."""
+    Фильтрует по сохранённому object_type, а для старых записей — по типу связанного объекта.
+    enrich_payments=True — добавляет список платежей на каждый заказ (для Excel)."""
     if object_type:
         cur.execute("""
             SELECT so.*
@@ -2204,6 +2319,19 @@ def _fetch_service_orders(cur, object_type=None):
         for f in ("service_date", "end_date", "payment_date"):
             if isinstance(o.get(f), date):
                 o[f] = o[f].isoformat()
+        o["paid_amount"] = float(o.get("paid_amount") or 0)
+    if enrich_payments and orders:
+        ids = [o["id"] for o in orders]
+        cur.execute("""
+            SELECT order_id, amount::float, paid_date::text, payment_type
+            FROM service_payments WHERE order_id = ANY(%s)
+            ORDER BY order_id, COALESCE(paid_date, '0001-01-01'), id
+        """, (ids,))
+        by_oid = {}
+        for row in cur.fetchall():
+            by_oid.setdefault(row["order_id"], []).append(dict(row))
+        for o in orders:
+            o["_payments"] = by_oid.get(o["id"], [])
     return orders
 
 
@@ -2211,7 +2339,7 @@ def _fetch_service_orders(cur, object_type=None):
 @require_perm("excel")
 def export_excel_services():
     conn = get_db(); cur = conn.cursor()
-    orders = _fetch_service_orders(cur)
+    orders = _fetch_service_orders(cur, enrich_payments=True)
     cur.close(); conn.close()
     wb  = _build_services_excel(orders, "Все услуги")
     buf = io.BytesIO(); wb.save(buf); buf.seek(0)
@@ -2230,7 +2358,7 @@ def export_excel_services_by_type(obj_key):
     if not obj_name:
         return redirect(url_for("export_excel_services"))
     conn = get_db(); cur = conn.cursor()
-    orders = _fetch_service_orders(cur, object_type=obj_name)
+    orders = _fetch_service_orders(cur, object_type=obj_name, enrich_payments=True)
     cur.close(); conn.close()
     wb  = _build_services_excel(orders, f"Услуги — {obj_name}")
     buf = io.BytesIO(); wb.save(buf); buf.seek(0)
@@ -2255,7 +2383,7 @@ _SVC_SHEET_TITLES = {
 def export_excel_services_all():
     """Единый Excel по всем услугам: отдельный лист на каждый тип объекта."""
     conn = get_db(); cur = conn.cursor()
-    orders = _fetch_service_orders(cur)
+    orders = _fetch_service_orders(cur, enrich_payments=True)
     cur.close(); conn.close()
 
     wb = Workbook()
@@ -2506,7 +2634,7 @@ def export_excel_cottage(cottage_id):
 # Все таблицы выгружаются в один файл .json; восстановление полностью
 # заменяет текущие данные данными из файла (внутри транзакции).
 # Порядок таблиц учитывает внешние ключи: родители раньше детей.
-_BACKUP_TABLES = ["cottages", "service_catalog", "bookings", "booking_payments", "service_orders", "settings"]
+_BACKUP_TABLES = ["cottages", "service_catalog", "bookings", "booking_payments", "service_orders", "service_payments", "settings"]
 
 
 @app.route("/backup/download")
@@ -2597,6 +2725,23 @@ def backup_restore():
                 deposit_paid = COALESCE(
                     (SELECT SUM(amount) FROM booking_payments WHERE booking_id = bookings.id), 0)
             WHERE id IN (SELECT DISTINCT booking_id FROM booking_payments)
+        """)
+
+        # Аналогично для service_payments (старый бэкап без таблицы)
+        cur.execute("""
+            INSERT INTO service_payments (order_id, amount, paid_date, payment_type)
+            SELECT so.id, so.total, so.payment_date,
+                   COALESCE(NULLIF(so.payment_type, ''), '')
+            FROM service_orders so
+            WHERE so.status = 'paid'
+              AND so.total > 0
+              AND NOT EXISTS (SELECT 1 FROM service_payments p WHERE p.order_id = so.id)
+        """)
+        cur.execute("""
+            UPDATE service_orders SET
+                paid_amount = COALESCE(
+                    (SELECT SUM(amount) FROM service_payments WHERE order_id = service_orders.id), 0)
+            WHERE id IN (SELECT DISTINCT order_id FROM service_payments)
         """)
 
         conn.commit()
